@@ -1,0 +1,31 @@
+//! `Updater` が要求するボード抽象。プロジェクト側はこれを実装して MMIO に接続する。
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoError {
+    OutOfRange,
+    Hardware,
+    Timeout,
+}
+
+impl embedded_hal::spi::Error for IoError {
+    fn kind(&self) -> embedded_hal::spi::ErrorKind {
+        embedded_hal::spi::ErrorKind::Other
+    }
+}
+
+/// SD / Flash / 再構成を抽象化するポート。
+///
+/// 実装例は各プロジェクトの `mmio.rs` を参照。SD と Flash は同時に使わない契約で、
+/// 呼び出し順の直列化は updater 側が保証する。
+pub trait BoardIo {
+    fn status(&self) -> u32;
+    fn set_debug_state(&mut self, state: u32);
+    fn sd_set_cs(&mut self, asserted: bool);
+    fn sd_set_clock_div(&mut self, half_period_cycles: u8);
+    fn sd_transfer_byte(&mut self, byte: u8) -> Result<u8, IoError>;
+    fn flash_erase_64k(&mut self, address: u32) -> Result<(), IoError>;
+    fn flash_program_page(&mut self, address: u32, data: &[u8]) -> Result<(), IoError>;
+    fn flash_read(&mut self, address: u32, out: &mut [u8]) -> Result<(), IoError>;
+    fn flash_jedec_id(&mut self) -> Result<[u8; 3], IoError>;
+    fn set_reconfig_trigger(&mut self, asserted_low: bool);
+}

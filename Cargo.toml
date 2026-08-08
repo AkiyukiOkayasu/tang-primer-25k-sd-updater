@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sd-updater",
+    "crates/sd-updater-build",
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

@@ -1,0 +1,86 @@
+# gowin-sd-updater
+
+Gowin FPGA + PicoRV32 前提の SD カードファームウェア更新機能の共有実装。
+SD/FAT 読み出し、update package の検証 (magic / target / CRC32 / SHA256)、
+Flash への書き込み、再構成トリガまでを 1 つのフローとして提供する。
+
+## 前提 (プロジェクト側の制約)
+
+- Gowin FPGA (Veryl)、ソフトコア CPU は PicoRV32
+- PicoRV32 では CSR 命令を使わない (firmware に CSR 命令を入れない)
+- Veryl 設定は `clock_type=posedge` / `reset_type=sync_high`
+- システムクロック 50 MHz (delay の tick 換算に使用)
+- updater firmware は TCM 32KB 以内
+- 再構成は MultiBoot 方式で、`RECONFIG_N` への Low pulse (hotboot / MSPI_JUMP は使わない)
+
+## 構成
+
+```text
+crates/
+├── sd-updater/        # no_std コア。BoardIo / Updater / UpdateSpec / SD・Flash・package 処理
+└── sd-updater-build/  # build.rs 補助。update_spec.conf → $OUT_DIR/update_spec.rs を生成
+tools/
+├── update_spec.py     # Python 側の spec パーサ (sd-updater-build と REQUIRED_KEYS を同期)
+├── make_update_package/   # update package (FPGAOSC.UPD) 生成
+└── make_factory_image/    # factory flash image 生成
+```
+
+## 統合手順 (プロジェクト側)
+
+1. `update_spec.conf` をプロジェクトに置く (`crates/sd-updater-build` のテスト参照)。
+   値の基準は常にこのファイル。hw_id / flash layout はプロジェクト固有。
+2. `Cargo.toml` に追加:
+
+```toml
+[dependencies]
+sd_updater = { path = "../gowin-sd-updater/crates/sd-updater" }
+
+[build-dependencies]
+sd-updater-build = { path = "../gowin-sd-updater/crates/sd-updater-build" }
+```
+
+   生成コードは `sd_updater::UpdateSpec` を参照するため、依存 crate の名前は
+   `sd_updater` で固定する。
+
+3. `build.rs`:
+
+```rust
+fn main() {
+    println!("cargo:rerun-if-changed=update_spec.conf");
+    sd_updater_build::generate("update_spec.conf").expect("update_spec.conf を読み込めない");
+}
+```
+
+4. 生成された SPEC を取り込み、`BoardIo` を実装して起動する:
+
+```rust
+include!(concat!(env!("OUT_DIR"), "/update_spec.rs"));
+
+let mut updater = sd_updater::Updater::new(MyBoardIo::new(), SPEC);
+loop {
+    let status = updater.poll_once();
+    updater.report_status(status);
+}
+```
+
+`BoardIo` の実装例は各プロジェクトの `mmio.rs` を参照
+(SD byte SPI / Flash erase・program・read / JEDEC ID / reconfig トリガを MMIO に接続する)。
+
+5. ホストツールは `tools/make_update_package/make_update_package.py` と
+   `tools/make_factory_image/make_factory_image.py` を `--spec <update_spec.conf>` 付きで実行する。
+
+## リリース同期
+
+format_version / flash layout を共有側で変更した場合は、各プロジェクトの
+`update_spec.conf` を更新する。package を作り直すまで古い spec との互換は
+保持すること (更新ファイルの header format は後方互換を前提とする)。
+
+## 開発
+
+```bash
+just check    # fmt / clippy / test
+```
+
+## ライセンス
+
+未定
