@@ -13,6 +13,14 @@ Flash への書き込み、再構成トリガまでを 1 つのフローとし�
 - updater firmware は TCM 32KB 以内
 - 再構成は MultiBoot 方式で、`RECONFIG_N` への Low pulse (hotboot / MSPI_JUMP は使わない)
 
+## 開発環境の前提
+
+- Rust (riscv32imc target)、Cargo
+- Veryl 0.20 系 (`rtl/` のビルド)
+- Verilator + make + C++ コンパイラ (`just rtl-check` の Verilator テスト)
+- Python 3 (`tools/` の構文チェック)
+- `just` (コマンドレシピ)
+
 ## 構成
 
 ```text
@@ -33,9 +41,8 @@ tools/
 └── make_factory_image/    # factory flash image 生成
 ```
 
-前提: Veryl 0.20 系 (`rtl/` のビルドに必要)。RTL は path 依存で参照し、
-`Veryl.lock` が相対パスを記録するため、共有 repo を `~/Documents/AkiyukiProjects/gowin-sd-updater`
-に配置する前提とする。
+前提: RTL は path 依存で参照し、`Veryl.lock` が相対パスを記録するため、
+共有 repo を `~/Documents/AkiyukiProjects/gowin-sd-updater` に配置する前提とする。
 
 ## 統合手順 (プロジェクト側)
 
@@ -124,7 +131,9 @@ format_version / flash layout を共有側で変更した場合は、各プロ�
 ## 開発
 
 ```bash
-just check    # fmt / clippy / test
+just check    # Rust fmt/clippy/test + Python 構文チェック + rtl-check 一式
+just rtl-check # rtl/ のみ: Veryl fmt/build + Verilator lint + Verilator cpp テスト
+just fmt      # cargo fmt + rtl/ の veryl fmt
 ```
 
 ## ライセンス
