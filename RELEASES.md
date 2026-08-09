@@ -8,4 +8,4 @@
 - ホストツールは Rust CLI (Python 版から置換、出力は byte 同一)
 - Verilator テスト: `just rtl-check` (updater_regs / spi_byte_engine)
 - SD カード無し/更新ファイル無し時は app へ自動移行 (更新エラー時は updater に留まる)
-- app slot の現内容がパッケージと一致 (SHA256) する場合は書き込みをスキップ (自己修復)
+- app slot の現内容がパッケージと一致 (CRC32) する場合は書き込みをスキップ (自己修復)

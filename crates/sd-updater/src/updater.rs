@@ -3,7 +3,7 @@
 use crate::sd_spi::{
     FirmwareDelay, MmioSdSpi, SD_INIT_HALF_PERIOD_CYCLES, SD_RUN_HALF_PERIOD_CYCLES,
 };
-use crate::{BoardIo, IoError, UpdateSpec, crc32, package, sha256, w25q64};
+use crate::{BoardIo, IoError, UpdateSpec, crc32, package, w25q64};
 use embedded_hal::delay::DelayNs;
 use embedded_sdmmc::{BlockDevice, Mode, SdCard, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 
@@ -87,7 +87,6 @@ enum UpdateError {
     WrongTarget,
     WrongLayout,
     PayloadCrc,
-    PayloadSha,
     SlotRange,
     Flash(IoError),
     FlashJedec,
@@ -196,10 +195,13 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         Ok(true)
     }
 
-    /// app slot の現内容の SHA256 がパッケージの payload_sha256 と一致するか。
+    /// app slot の現内容の CRC32 がパッケージの payload_crc32 と一致するか。
     /// 一致 = 書き込み不要 (現内容が正しい)。不一致 = 書き込みが必要。
+    ///
+    /// CRC32 はランダムな腐食・書き込みミスの検出には十分 (2^-32) で、PicoRV32 では
+    /// SHA256 より一桁以上速い (テーブル駆動)。意図的な改ざんは対象外。
     fn app_slot_matches(&mut self, header: package::UpdateHeader) -> Result<bool, UpdateError> {
-        let mut sha = sha256::Sha256::new();
+        let mut crc = crc32::Crc32::new();
         let mut remaining = header.payload_size;
         let mut address = self.spec.app_base;
         while remaining != 0 {
@@ -207,11 +209,11 @@ impl<Io: BoardIo + 'static> Updater<Io> {
             self.io
                 .flash_read(address, &mut self.page[..chunk_len])
                 .map_err(UpdateError::Flash)?;
-            sha.update(&self.page[..chunk_len]);
+            crc.update(&self.page[..chunk_len]);
             remaining -= chunk_len as u32;
             address += chunk_len as u32;
         }
-        Ok(sha.finish() == header.payload_sha256)
+        Ok(crc.finish() == header.payload_crc32)
     }
 
     fn open_sd_card(&mut self) -> Result<UpdaterSdCard<Io>, UpdateError>
@@ -291,22 +293,17 @@ impl<Io: BoardIo + 'static> Updater<Io> {
             .map_err(map_sd_error)?;
 
         let mut crc = crc32::Crc32::new();
-        let mut sha = sha256::Sha256::new();
         let mut remaining = header.payload_size;
 
         while remaining != 0 {
             let chunk_len = core::cmp::min(remaining, self.page.len() as u32) as usize;
             read_exact(&file, &mut self.page[..chunk_len])?;
             crc.update(&self.page[..chunk_len]);
-            sha.update(&self.page[..chunk_len]);
             remaining -= chunk_len as u32;
         }
 
         if crc.finish() != header.payload_crc32 {
             return Err(UpdateError::PayloadCrc);
-        }
-        if sha.finish() != header.payload_sha256 {
-            return Err(UpdateError::PayloadSha);
         }
         Ok(())
     }
@@ -470,9 +467,7 @@ fn map_update_error(error: UpdateError) -> UpdateStatus {
         UpdateError::SdFormat => UpdateStatus::FatFormatError,
         UpdateError::Header(_) => UpdateStatus::HeaderError,
         UpdateError::WrongTarget | UpdateError::WrongLayout => UpdateStatus::TargetError,
-        UpdateError::PayloadCrc | UpdateError::PayloadSha | UpdateError::SlotRange => {
-            UpdateStatus::PayloadError
-        }
+        UpdateError::PayloadCrc | UpdateError::SlotRange => UpdateStatus::PayloadError,
         UpdateError::Flash(_) | UpdateError::FlashJedec | UpdateError::VerifyMismatch => {
             UpdateStatus::FlashError
         }
@@ -494,8 +489,8 @@ mod tests {
             app_version: 0,
             payload_offset: 0,
             payload_size: payload.len() as u32,
-            payload_crc32: 0,
-            payload_sha256: sha256::digest(payload),
+            payload_crc32: crc32::checksum(payload),
+            payload_sha256: [0; 32],
         }
     }
 
