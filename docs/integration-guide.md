@@ -670,9 +670,9 @@ set_option -bg_programming userlogic
 
 ### 9.3 ロジアナ観測
 
-- `dbg_state[3:0]` + SD SPI (CS/SCLK/MOSI/MISO) + Flash SPI + reconfig トリガを観測
-  (第 6 節の例では `reconfig_trig_n` をそのまま観測する。デバッグ用の複製出力
-  `dbg_*` を追加してもよい)
+- `dbg_state[3:0]` と reconfig トリガ (`reconfig_trig_n` をそのまま観測) を観測する。
+  SD / Flash SPI の複製出力は持たないため、SPI を観測したい場合は基板上の配線を直接
+  プローブする
 - ブリングアップは LED よりロジアナ優先
 - skip 判定は flash の **0x03 READ** が連続する (書き込みの 0x02/0xD8 と区別すること)
 
