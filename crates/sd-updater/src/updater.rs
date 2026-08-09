@@ -173,10 +173,32 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         drop(card);
         self.io.sd_set_cs(false);
 
-        self.program_app_slot(header)?;
+        // app slot の現内容がパッケージと一致していれば書き込みをスキップする。
+        // 内容ベースの比較なので、書き込み後の腐食・部分書き込みは必ず検出して書き直す (自己修復)。
+        if !self.app_slot_matches(header)? {
+            self.program_app_slot(header)?;
+        }
         self.report_status(UpdateStatus::FlashVerifyOk);
         self.trigger_app_reconfig();
         Ok(true)
+    }
+
+    /// app slot の現内容の SHA256 がパッケージの payload_sha256 と一致するか。
+    /// 一致 = 書き込み不要 (現内容が正しい)。不一致 = 書き込みが必要。
+    fn app_slot_matches(&mut self, header: package::UpdateHeader) -> Result<bool, UpdateError> {
+        let mut sha = sha256::Sha256::new();
+        let mut remaining = header.payload_size;
+        let mut address = self.spec.app_base;
+        while remaining != 0 {
+            let chunk_len = core::cmp::min(remaining, self.page.len() as u32) as usize;
+            self.io
+                .flash_read(address, &mut self.page[..chunk_len])
+                .map_err(UpdateError::Flash)?;
+            sha.update(&self.page[..chunk_len]);
+            remaining -= chunk_len as u32;
+            address += chunk_len as u32;
+        }
+        Ok(sha.finish() == header.payload_sha256)
     }
 
     fn open_sd_card(&mut self) -> Result<UpdaterSdCard<Io>, UpdateError>
@@ -441,5 +463,67 @@ fn map_update_error(error: UpdateError) -> UpdateStatus {
         UpdateError::Flash(_) | UpdateError::FlashJedec | UpdateError::VerifyMismatch => {
             UpdateStatus::FlashError
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::TEST_SPEC;
+    use crate::test_doubles::FakeMmio;
+
+    fn header_for(payload: &[u8]) -> package::UpdateHeader {
+        package::UpdateHeader {
+            format_version: 0,
+            target_hw_id: 0,
+            target_fpga_id: 0,
+            target_flash_layout: 0,
+            app_version: 0,
+            payload_offset: 0,
+            payload_size: payload.len() as u32,
+            payload_crc32: 0,
+            payload_sha256: sha256::digest(payload),
+        }
+    }
+
+    #[test]
+    fn app_slot_matches_when_content_identical() {
+        let payload = vec![0x5A; 1024];
+        let mut mmio = FakeMmio::default();
+        let start = TEST_SPEC.app_base as usize;
+        mmio.flash[start..start + payload.len()].copy_from_slice(&payload);
+        let mut updater = Updater::new(mmio, TEST_SPEC);
+        assert!(updater.app_slot_matches(header_for(&payload)).unwrap());
+    }
+
+    #[test]
+    fn app_slot_differs_when_content_corrupted() {
+        let payload = vec![0x5A; 1024];
+        let mut corrupted = payload.clone();
+        corrupted[500] ^= 0xFF;
+        let mut mmio = FakeMmio::default();
+        let start = TEST_SPEC.app_base as usize;
+        mmio.flash[start..start + corrupted.len()].copy_from_slice(&corrupted);
+        let mut updater = Updater::new(mmio, TEST_SPEC);
+        assert!(!updater.app_slot_matches(header_for(&payload)).unwrap());
+    }
+
+    #[test]
+    fn app_slot_differs_when_slot_empty() {
+        let payload = vec![0x5A; 1024];
+        let mmio = FakeMmio::default();
+        let mut updater = Updater::new(mmio, TEST_SPEC);
+        assert!(!updater.app_slot_matches(header_for(&payload)).unwrap());
+    }
+
+    #[test]
+    fn app_slot_matches_reports_flash_error() {
+        let payload = vec![0x5A; 1024];
+        let mmio = FakeMmio {
+            fail_io: true,
+            ..Default::default()
+        };
+        let mut updater = Updater::new(mmio, TEST_SPEC);
+        assert!(updater.app_slot_matches(header_for(&payload)).is_err());
     }
 }
