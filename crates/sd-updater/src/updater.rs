@@ -28,10 +28,11 @@ pub enum UpdateStatus {
     HeaderValid,
     PayloadVerify,
     FlashJedec,
-    FlashErase,
     FlashProgram,
     FlashVerify,
     FlashVerifyOk,
+    /// app slot の現内容がパッケージと一致し、書き込みをスキップした。
+    AppSlotSkip,
     NoCardOrNoFile,
     FatIoError,
     FileNotFound,
@@ -59,7 +60,8 @@ impl UpdateStatus {
             UpdateStatus::HeaderValid => 0xA,
             UpdateStatus::PayloadVerify => 0xB,
             UpdateStatus::FlashJedec => 0xC,
-            UpdateStatus::FlashErase => 0xD,
+            // 0xD は書き込みスキップの判定表示に割り当てる (erase は report しない)。
+            UpdateStatus::AppSlotSkip => 0xD,
             UpdateStatus::FlashProgram
             | UpdateStatus::FlashVerify
             | UpdateStatus::FlashVerifyOk => 0xE,
@@ -175,7 +177,9 @@ impl<Io: BoardIo + 'static> Updater<Io> {
 
         // app slot の現内容がパッケージと一致していれば書き込みをスキップする。
         // 内容ベースの比較なので、書き込み後の腐食・部分書き込みは必ず検出して書き直す (自己修復)。
-        if !self.app_slot_matches(header)? {
+        if self.app_slot_matches(header)? {
+            self.report_status(UpdateStatus::AppSlotSkip);
+        } else {
             self.program_app_slot(header)?;
         }
         self.report_status(UpdateStatus::FlashVerifyOk);
