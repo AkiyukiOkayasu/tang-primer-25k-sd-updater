@@ -9,7 +9,7 @@
 /// で、firmware のレジスタオフセットは下記の通り。
 ///
 /// ```text
-/// 0x00 STATUS            (read-only)
+/// 0x00 STATUS            (bit0 = SD card detect 1: 挿入 / 0: 未挿入, read-only)
 /// 0x08 LED
 /// 0x0C DEBUG_STATE
 /// 0x10 SD_CONTROL        (START / CS_ASSERT)
@@ -25,6 +25,10 @@
 /// 0x44 RECONFIG_CONTROL  (ASSERT_LOW)
 /// 0x300 FLASH_BUFFER     (256 bytes)
 /// ```
+///
+/// STATUS bit0 は `i_sd_cd` の生のレベル。極性は基板/Pmod 依存のため firmware
+/// (`mmio.rs` の `sd_card_detect`) 側で解釈する (この repo では Pmod MicroSD の
+/// CD がカード挿入時に LOW になる前提で `== 0` を挿入と扱う)。
 ///
 /// # Parameters
 ///
@@ -55,6 +59,7 @@ pub module UpdaterRegs #(
     o_sd_sclk: output logic,
     o_sd_mosi: output logic,
     i_sd_miso: input  logic,
+    i_sd_cd  : input  logic, /// SD card detect (STATUS bit0 にそのまま出す)
 
     o_flash_cs_n: output logic,
     o_flash_sclk: output logic,
@@ -316,7 +321,7 @@ pub module UpdaterRegs #(
             }
             if i_mem_valid && !is_write {
                 case i_mem_addr {
-                    ADDR_STATUS          : read_data_reg = 0;
+                    ADDR_STATUS          : read_data_reg = {31'd0, i_sd_cd};
                     ADDR_LED             : read_data_reg = reg_led_pattern;
                     ADDR_DEBUG_STATE     : read_data_reg = {28'd0, reg_debug_state};
                     ADDR_SD_CONTROL      : read_data_reg = reg_sd_control;

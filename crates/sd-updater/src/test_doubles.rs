@@ -14,6 +14,7 @@ pub struct FakeMmio {
     pub flash: std::vec::Vec<u8>,
     #[allow(dead_code)]
     pub jedec_id: [u8; 3],
+    pub sd_card_detect: bool,
     pub fail_io: bool,
     pub flash_erase_count: u32,
     pub flash_program_count: u32,
@@ -35,6 +36,7 @@ impl Default for FakeMmio {
             sd_rx: std::vec::Vec::new(),
             flash: std::vec![0xFFu8; 0x200000],
             jedec_id: [0xEF, 0x40, 0x17],
+            sd_card_detect: true,
             fail_io: false,
             flash_erase_count: 0,
             flash_program_count: 0,
@@ -74,6 +76,10 @@ impl BoardIo for FakeMmio {
         } else {
             self.sd_rx.remove(0)
         })
+    }
+
+    fn sd_card_detect(&self) -> bool {
+        self.sd_card_detect
     }
 
     fn flash_erase_64k(&mut self, address: u32) -> Result<(), IoError> {
@@ -151,12 +157,27 @@ mod tests {
 
     #[test]
     fn no_card_transitions_to_app() {
-        let mmio = FakeMmio::default();
+        let mmio = FakeMmio {
+            sd_card_detect: false,
+            ..Default::default()
+        };
         let mut updater = Updater::new(mmio, TEST_SPEC);
         assert_eq!(updater.poll_once(), UpdateStatus::FatIoError);
         let mmio = updater.into_inner();
         assert_eq!(mmio.reconfig_assert_count, 1);
         assert_eq!(mmio.reconfig_release_count, 1);
+    }
+
+    #[test]
+    fn card_detect_skips_sd_init() {
+        let mmio = FakeMmio {
+            sd_card_detect: false,
+            ..Default::default()
+        };
+        let mut updater = Updater::new(mmio, TEST_SPEC);
+        let _ = updater.poll_once();
+        let mmio = updater.into_inner();
+        assert!(mmio.sd_tx.is_empty(), "SD 初期化コマンドを送信しないこと");
     }
 
     #[test]

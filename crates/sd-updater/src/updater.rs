@@ -184,6 +184,11 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         Io: 'static,
     {
         self.report_status(UpdateStatus::SdPowerWait);
+        // カード検出ピンで即判定する。未挿入なら embedded-sdmmc の CMD0/ACMD41
+        // リトライ待ち (数十秒) をせずに、すぐ app 移行の経路へ進む。
+        if !self.io.sd_card_detect() {
+            return Err(UpdateError::SdIo);
+        }
         let mut delay = FirmwareDelay;
         // SD仕様的には1ms待機すれば十分だが、カードによっては起動に時間がかかるものもあるようなので、余裕を持って100ms待つ
         delay.delay_ms(100);

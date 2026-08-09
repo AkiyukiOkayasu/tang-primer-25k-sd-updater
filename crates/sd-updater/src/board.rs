@@ -23,6 +23,9 @@ pub trait BoardIo {
     fn sd_set_cs(&mut self, asserted: bool);
     fn sd_set_clock_div(&mut self, half_period_cycles: u8);
     fn sd_transfer_byte(&mut self, byte: u8) -> Result<u8, IoError>;
+    /// SD カードが挿入されているか。未挿入なら SD 初期化のリトライ待ちをせずに
+    /// app へ移行する経路で使う。極性は実装 (mmio) 側で解釈する。
+    fn sd_card_detect(&self) -> bool;
     fn flash_erase_64k(&mut self, address: u32) -> Result<(), IoError>;
     fn flash_program_page(&mut self, address: u32, data: &[u8]) -> Result<(), IoError>;
     fn flash_read(&mut self, address: u32, out: &mut [u8]) -> Result<(), IoError>;
