@@ -168,20 +168,29 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         let header = self.read_header(&mut card)?;
         self.validate_target(header)?;
         self.validate_layout(header)?;
-        self.report_status(UpdateStatus::HeaderValid);
-
-        self.report_status(UpdateStatus::PayloadVerify);
-        self.validate_payload_digest(&mut card, header)?;
         drop(card);
         self.io.sd_set_cs(false);
 
         // app slot の現内容がパッケージと一致していれば書き込みをスキップする。
         // 内容ベースの比較なので、書き込み後の腐食・部分書き込みは必ず検出して書き直す (自己修復)。
+        // 一致時は SD payload の読み出し・検証をせずに skip する (SD カードの応答が遅い
+        // 環境ではこれが起動時間の大半を占めるため)。flash が header の digest と一致する
+        // ことは flash 内容の正当性を直接示すので、SD payload の検証は不要。
+        self.report_status(UpdateStatus::HeaderValid);
         if self.app_slot_matches(header)? {
             self.report_status(UpdateStatus::AppSlotSkip);
-        } else {
-            self.program_app_slot(header)?;
+            self.report_status(UpdateStatus::FlashVerifyOk);
+            self.trigger_app_reconfig();
+            return Ok(true);
         }
+
+        let mut card = self.open_sd_card()?;
+        self.report_status(UpdateStatus::PayloadVerify);
+        self.validate_payload_digest(&mut card, header)?;
+        drop(card);
+        self.io.sd_set_cs(false);
+
+        self.program_app_slot(header)?;
         self.report_status(UpdateStatus::FlashVerifyOk);
         self.trigger_app_reconfig();
         Ok(true)
