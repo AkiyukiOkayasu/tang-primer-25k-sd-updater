@@ -1,8 +1,12 @@
 # gowin-sd-updater
 
 Gowin FPGA + PicoRV32 前提の SD カードファームウェア更新機能の共有実装。
-SD/FAT 読み出し、update package の検証 (magic / target / CRC32 / SHA256)、
+SD/FAT 読み出し、update package の検証 (magic / target / CRC32)、
 Flash への書き込み、reconfigトリガまでを 1 つのフローとして提供する。
+
+**別プロジェクトへの組み込み手順は [docs/integration-guide.md](docs/integration-guide.md) を参照**
+(アーキテクチャ・パッケージ形式・BoardIo 実装例・top.veryl 完全例・ビルドフロー・
+ブリングアップ手順を含む)。
 
 ## 前提 (プロジェクト側の制約)
 
