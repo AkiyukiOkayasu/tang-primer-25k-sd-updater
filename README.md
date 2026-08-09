@@ -18,7 +18,6 @@ Flash への書き込み、再構成トリガまでを 1 つのフローとし�
 - Rust (riscv32imc target)、Cargo
 - Veryl 0.20 系 (`rtl/` のビルド)
 - Verilator + make + C++ コンパイラ (`just rtl-check` の Verilator テスト)
-- Python 3 (`tools/` の構文チェック)
 - `just` (コマンドレシピ)
 
 ## 構成
@@ -26,7 +25,8 @@ Flash への書き込み、再構成トリガまでを 1 つのフローとし�
 ```text
 crates/
 ├── sd-updater/        # no_std コア。BoardIo / Updater / UpdateSpec / SD・Flash・package 処理
-└── sd-updater-build/  # build.rs 補助。update_spec.conf → $OUT_DIR/update_spec.rs を生成
+├── sd-updater-build/  # build.rs 補助 + spec パーサの唯一実装 (update_spec.conf → 定数 / Spec)
+└── sd-updater-tools/  # ホスト CLI。update package (FPGAOSC.UPD) / factory image の生成
 rtl/
 ├── src/               # updater RTL (Veryl ライブラリ fpga_sd_updater)
 │   ├── PicoMemBus     # CPU bus の TCM / peripheral 振り分け (TCM_ADDR_WIDTH / PERI_ADDR_WIDTH)
@@ -35,10 +35,6 @@ rtl/
 │   ├── SpiByteEngine  # SPI mode 0 byte 転送エンジン
 │   └── UpdaterRegs    # MMIO register block (BASE / FLASH_APP_BASE / FLASH_APP_END)
 └── tests/             # Verilator cpp テスト (updater_regs / spi_byte_engine)
-tools/
-├── update_spec.py     # Python 側の spec パーサ (sd-updater-build と REQUIRED_KEYS を同期)
-├── make_update_package/   # update package (FPGAOSC.UPD) 生成
-└── make_factory_image/    # factory flash image 生成
 ```
 
 前提: RTL は path 依存で参照し、`Veryl.lock` が相対パスを記録するため、
@@ -85,8 +81,12 @@ loop {
 `BoardIo` の実装例は各プロジェクトの `mmio.rs` を参照
 (SD byte SPI / Flash erase・program・read / JEDEC ID / reconfig トリガを MMIO に接続する)。
 
-5. ホストツールは `tools/make_update_package/make_update_package.py` と
-   `tools/make_factory_image/make_factory_image.py` を `--spec <update_spec.conf>` 付きで実行する。
+5. ホストツール (`sd-updater-tools`) で update package / factory image を生成する:
+
+```sh
+cargo run -p sd-updater-tools -- make-update-package app.bin FPGAOSC.UPD --spec update_spec.conf
+cargo run -p sd-updater-tools -- make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.conf
+```
 
 ## RTL 統合手順 (Veryl)
 
@@ -131,7 +131,7 @@ format_version / flash layout を共有側で変更した場合は、各プロ�
 ## 開発
 
 ```bash
-just check    # Rust fmt/clippy/test + Python 構文チェック + rtl-check 一式
+just check    # Rust fmt/clippy/test + rtl-check 一式
 just rtl-check # rtl/ のみ: Veryl fmt/build + Verilator lint + Verilator cpp テスト
 just fmt      # cargo fmt + rtl/ の veryl fmt
 ```

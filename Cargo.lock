@@ -64,6 +64,14 @@ name = "sd-updater-build"
 version = "0.1.0"
 
 [[package]]
+name = "sd-updater-tools"
+version = "0.1.0"
+dependencies = [
+ "sd-updater",
+ "sd-updater-build",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

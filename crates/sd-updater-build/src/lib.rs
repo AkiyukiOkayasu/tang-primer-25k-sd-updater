@@ -1,7 +1,8 @@
 //! `update_spec.conf` からプロジェクト側の Rust 定数を生成する build 補助ライブラリ。
 //!
-//! プロジェクトの `build.rs` から呼ぶ。REQUIRED_KEYS は `tools/update_spec.py` と
-//! 同期すること (両者で同じ key 集合を要求する)。
+//! プロジェクトの `build.rs` から `generate()` を呼ぶ。ホストツール
+//! (`sd-updater-tools`) は `load()` で同じ仕様を読み、package / factory image を生成する。
+//! パース・検証のロジックはこの crate が唯一の実装であり、他言語実装との同期は不要。
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,16 +27,51 @@ const REQUIRED_KEYS: &[&str] = &[
     "flash.layout_id",
 ];
 
+/// `update_spec.conf` の内容 (ホスト側、`String` 所有)。
+///
+/// firmware 側の生成定数 [`sd_updater::UpdateSpec`] とは別物。こちらは
+/// `sd-updater-tools` がファイルから直接読み込むために使う。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Spec {
+    pub file_name: String,
+    pub magic: [u8; 8],
+    pub header_size: usize,
+    pub format_version: u32,
+    pub target_hw_id: u32,
+    pub target_fpga_id: u32,
+    pub flash_layout_id: u32,
+    pub flash_size_bytes: u32,
+    pub updater_base: u32,
+    pub updater_size: u32,
+    pub app_base: u32,
+    pub app_size: u32,
+    pub metadata_base: u32,
+    pub metadata_size: u32,
+    pub golden_updater_base_candidate: u32,
+    pub golden_updater_size_candidate: u32,
+}
+
+/// `update_spec.conf` の内容文字列を検証して [`Spec`] を返す。`path` はエラーメッセージ用。
+pub fn parse(spec: &str, path: &str) -> Result<Spec, String> {
+    let values = parse_spec(spec, path)?;
+    build_spec(&values, path)
+}
+
+/// `update_spec.conf` を読み、検証して [`Spec`] を返す。
+pub fn load(spec_path: &str) -> Result<Spec, String> {
+    let spec = fs::read_to_string(spec_path)
+        .map_err(|error| format!("{spec_path} を読み込めない: {error}"))?;
+    parse(&spec, spec_path)
+}
+
 /// `update_spec.conf` を読み、`$OUT_DIR/update_spec.rs` に `SPEC` 定数を生成する。
 ///
 /// 生成コードは `sd_updater::UpdateSpec` を参照するため、依存 crate の名前は
 /// `sd_updater` にする必要がある。`cargo:rerun-if-changed=update_spec.conf` の emit は
 /// build-dependency の stdout が転送されないため、呼び出し側の build.rs で行うこと。
 pub fn generate(spec_path: &str) -> Result<(), String> {
-    let spec = fs::read_to_string(spec_path)
-        .map_err(|error| format!("{spec_path} を読み込めない: {error}"))?;
-    let values = parse_spec(&spec, spec_path)?;
-    let generated = generate_rust(&values, spec_path)?;
+    let spec = load(spec_path)?;
+    let generated = generate_rust(&spec, spec_path)?;
 
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR が未設定")?);
     fs::write(out_dir.join("update_spec.rs"), generated)
@@ -112,7 +148,7 @@ fn parse_magic(values: &BTreeMap<String, String>, path: &str) -> Result<[u8; 8],
     Ok(bytes)
 }
 
-fn generate_rust(values: &BTreeMap<String, String>, path: &str) -> Result<String, String> {
+fn build_spec(values: &BTreeMap<String, String>, path: &str) -> Result<Spec, String> {
     let file_name = value(values, "package.file_name", path)?;
     if !file_name
         .bytes()
@@ -121,7 +157,37 @@ fn generate_rust(values: &BTreeMap<String, String>, path: &str) -> Result<String
         return Err(format!("{path}: package.file_name が不正"));
     }
 
-    let magic = parse_magic(values, path)?
+    Ok(Spec {
+        file_name: file_name.to_owned(),
+        magic: parse_magic(values, path)?,
+        header_size: parse_u32(values, "package.header_size", path)? as usize,
+        format_version: parse_u32(values, "package.format_version", path)?,
+        target_hw_id: parse_u32(values, "package.target_hw_id", path)?,
+        target_fpga_id: parse_u32(values, "package.target_fpga_id", path)?,
+        flash_layout_id: parse_u32(values, "flash.layout_id", path)?,
+        flash_size_bytes: parse_u32(values, "flash.flash_size_bytes", path)?,
+        updater_base: parse_u32(values, "flash.updater_base", path)?,
+        updater_size: parse_u32(values, "flash.updater_size", path)?,
+        app_base: parse_u32(values, "flash.app_base", path)?,
+        app_size: parse_u32(values, "flash.app_size", path)?,
+        metadata_base: parse_u32(values, "flash.metadata_base", path)?,
+        metadata_size: parse_u32(values, "flash.metadata_size", path)?,
+        golden_updater_base_candidate: parse_u32(
+            values,
+            "flash.golden_updater_base_candidate",
+            path,
+        )?,
+        golden_updater_size_candidate: parse_u32(
+            values,
+            "flash.golden_updater_size_candidate",
+            path,
+        )?,
+    })
+}
+
+fn generate_rust(spec: &Spec, _path: &str) -> Result<String, String> {
+    let magic = spec
+        .magic
         .iter()
         .map(u8::to_string)
         .collect::<Vec<_>>()
@@ -150,22 +216,21 @@ pub const SPEC: sd_updater::UpdateSpec = sd_updater::UpdateSpec {{
     golden_updater_size_candidate: {golden_updater_size_candidate},
 }};
 ",
-        header_size = parse_u32(values, "package.header_size", path)?,
-        format_version = parse_u32(values, "package.format_version", path)?,
-        target_hw_id = parse_u32(values, "package.target_hw_id", path)?,
-        target_fpga_id = parse_u32(values, "package.target_fpga_id", path)?,
-        flash_size_bytes = parse_u32(values, "flash.flash_size_bytes", path)?,
-        updater_base = parse_u32(values, "flash.updater_base", path)?,
-        updater_size = parse_u32(values, "flash.updater_size", path)?,
-        app_base = parse_u32(values, "flash.app_base", path)?,
-        app_size = parse_u32(values, "flash.app_size", path)?,
-        metadata_base = parse_u32(values, "flash.metadata_base", path)?,
-        metadata_size = parse_u32(values, "flash.metadata_size", path)?,
-        golden_updater_base_candidate =
-            parse_u32(values, "flash.golden_updater_base_candidate", path)?,
-        golden_updater_size_candidate =
-            parse_u32(values, "flash.golden_updater_size_candidate", path)?,
-        layout_id = parse_u32(values, "flash.layout_id", path)?,
+        file_name = spec.file_name,
+        header_size = spec.header_size,
+        format_version = spec.format_version,
+        target_hw_id = spec.target_hw_id,
+        target_fpga_id = spec.target_fpga_id,
+        flash_size_bytes = spec.flash_size_bytes,
+        updater_base = spec.updater_base,
+        updater_size = spec.updater_size,
+        app_base = spec.app_base,
+        app_size = spec.app_size,
+        metadata_base = spec.metadata_base,
+        metadata_size = spec.metadata_size,
+        golden_updater_base_candidate = spec.golden_updater_base_candidate,
+        golden_updater_size_candidate = spec.golden_updater_size_candidate,
+        layout_id = spec.flash_layout_id,
     ))
 }
 
@@ -195,12 +260,15 @@ flash.layout_id=0x46504f31
 
     #[test]
     fn parses_valid_spec() {
-        let values = parse_spec(SAMPLE_CONF, "update_spec.conf").unwrap();
-        assert_eq!(values.get("package.file_name").unwrap(), "FPGAOSC.UPD");
-        assert_eq!(
-            parse_u32(&values, "flash.app_base", "update_spec.conf").unwrap(),
-            0x100000
-        );
+        let spec = build_spec(
+            &parse_spec(SAMPLE_CONF, "update_spec.conf").unwrap(),
+            "update_spec.conf",
+        )
+        .unwrap();
+        assert_eq!(spec.file_name, "FPGAOSC.UPD");
+        assert_eq!(spec.app_base, 0x100000);
+        assert_eq!(spec.header_size, 0x58);
+        assert_eq!(spec.magic, [0x46, 0x50, 0x47, 0x41, 0x4F, 0x53, 0x43, 0x00]);
     }
 
     #[test]
@@ -216,9 +284,20 @@ flash.layout_id=0x46504f31
     }
 
     #[test]
+    fn rejects_invalid_file_name() {
+        let spec = SAMPLE_CONF.replace("package.file_name=FPGAOSC.UPD", "package.file_name=../x");
+        let values = parse_spec(&spec, "update_spec.conf").unwrap();
+        assert!(build_spec(&values, "update_spec.conf").is_err());
+    }
+
+    #[test]
     fn generates_const_with_crate_reference() {
-        let values = parse_spec(SAMPLE_CONF, "update_spec.conf").unwrap();
-        let generated = generate_rust(&values, "update_spec.conf").unwrap();
+        let spec = build_spec(
+            &parse_spec(SAMPLE_CONF, "update_spec.conf").unwrap(),
+            "update_spec.conf",
+        )
+        .unwrap();
+        let generated = generate_rust(&spec, "update_spec.conf").unwrap();
         assert!(generated.contains("pub const SPEC: sd_updater::UpdateSpec"));
         assert!(generated.contains("file_name: \"FPGAOSC.UPD\""));
     }

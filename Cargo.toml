@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/sd-updater",
     "crates/sd-updater-build",
+    "crates/sd-updater-tools",
 ]
 
 [profile.release]
