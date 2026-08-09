@@ -7,3 +7,4 @@
 - 共有 RTL (Veryl `fpga_sd_updater`): `PicoMemBus` / `PicoTcm` / `rst_bridge` / `SpiByteEngine` / `UpdaterRegs` (パラメータ化)
 - ホストツールは Rust CLI (Python 版から置換、出力は byte 同一)
 - Verilator テスト: `just rtl-check` (updater_regs / spi_byte_engine)
+- SD カード無し/更新ファイル無し時は app へ自動移行 (更新エラー時は updater に留まる)

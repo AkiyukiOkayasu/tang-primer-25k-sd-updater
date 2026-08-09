@@ -150,6 +150,16 @@ mod tests {
     }
 
     #[test]
+    fn no_card_transitions_to_app() {
+        let mmio = FakeMmio::default();
+        let mut updater = Updater::new(mmio, TEST_SPEC);
+        assert_eq!(updater.poll_once(), UpdateStatus::FatIoError);
+        let mmio = updater.into_inner();
+        assert_eq!(mmio.reconfig_assert_count, 1);
+        assert_eq!(mmio.reconfig_release_count, 1);
+    }
+
+    #[test]
     fn sd_spi_transaction_controls_cs_and_transfers_bytes() {
         let mut mmio = FakeMmio {
             sd_rx: vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x12, 0x34],

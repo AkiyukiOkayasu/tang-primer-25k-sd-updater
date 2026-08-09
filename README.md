@@ -11,7 +11,16 @@ Flash への書き込み、再構成トリガまでを 1 つのフローとし�
 - Veryl 設定は `clock_type=posedge` / `reset_type=sync_high`
 - システムクロック 50 MHz (delay の tick 換算に使用)
 - updater firmware は TCM 32KB 以内
-- 再構成は MultiBoot 方式で、`RECONFIG_N` への Low pulse (hotboot / MSPI_JUMP は使わない)
+- 再構成は MultiBoot 方式で、`RECONFIG_N` への Low pulse (hotboot / MSPI_JUMP は使わない)。
+  `RECONFIG_N` ネットには外部プルアップが必要 (基板に無い場合は 10kΩ 程度を追加)
+
+## 動作仕様
+
+- SD カードに更新ファイルがあれば検証して app slot に書き込み、成功後に再構成して app へ移行する
+- SD カードが無い / 更新ファイルが無い / カードが読めない場合は、SD 探索失敗後に
+  そのまま再構成して app へ移行する (app slot が空/破損なら config 失敗で
+  次回電源投入時に先頭 updater へ戻る)
+- 更新ファイルがあるが検証・書き込みに失敗した場合は updater に留まる (エラー状態を報告)
 
 ## 開発環境の前提
 
