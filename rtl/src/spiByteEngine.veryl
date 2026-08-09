@@ -1,0 +1,94 @@
+/// SD card / W25Q64 共通の SPI mode 0 byte transfer engine。
+/// 1 start で MSB first の 8bit を送受信し、完了時に o_done を 1cycle 立てる。
+///
+/// # Contract
+///
+/// - `i_start` は `o_busy == 0` の間だけ 1cycle アサートする
+/// - `i_half_period_cycle == 0` は 1 として扱う
+/// - SPI mode 0: MOSI は SCLK rising 前に low phase で安定させる
+pub module SpiByteEngine (
+    i_clk              : input  clock   ,
+    i_rst              : input  reset   ,
+    i_start            : input  logic   ,
+    i_half_period_cycle: input  logic<8>,
+    i_tx_data          : input  logic<8>,
+    i_miso             : input  logic   ,
+    o_busy             : output logic   ,
+    o_done             : output logic   ,
+    o_rx_data          : output logic<8>,
+    o_sclk             : output logic   ,
+    o_mosi             : output logic   ,
+) {
+    const STATE_IDLE: logic<2> = 2'd0;
+    const STATE_LOW : logic<2> = 2'd1;
+    const STATE_HIGH: logic<2> = 2'd2;
+    const STATE_DONE: logic<2> = 2'd3;
+
+    var state    : logic<2>;
+    var tx_shift : logic<8>;
+    var rx_shift : logic<8>;
+    var bit_count: logic<4>;
+    var div_count: logic<8>;
+
+    let half_period_cycle: logic<8> = if i_half_period_cycle == 8'd0 ? 8'd1 : i_half_period_cycle;
+    let div_count_next   : logic<9> = {1'b0, div_count} + 9'd1;
+    let div_last         : logic    = div_count_next >= {1'b0, half_period_cycle};
+
+    assign o_busy    = state != STATE_IDLE;
+    assign o_done    = state == STATE_DONE;
+    assign o_rx_data = rx_shift;
+    assign o_sclk    = state == STATE_HIGH;
+    assign o_mosi    = tx_shift[7];
+
+    always_ff (i_clk, i_rst) {
+        if_reset {
+            state     = STATE_IDLE;
+            tx_shift  = 8'hFF;
+            rx_shift  = 0;
+            bit_count = 0;
+            div_count = 0;
+        } else {
+            case state {
+                STATE_IDLE: {
+                    if i_start {
+                        state     = STATE_LOW;
+                        tx_shift  = i_tx_data;
+                        rx_shift  = 0;
+                        bit_count = 0;
+                        div_count = 0;
+                    }
+                }
+                STATE_LOW: {
+                    // SPI mode 0: SCLK rising edge の前に MOSI を low phase で安定させる。
+                    if div_last {
+                        state     = STATE_HIGH;
+                        div_count = 0;
+                    } else {
+                        div_count = div_count_next[7:0];
+                    }
+                }
+                STATE_HIGH: {
+                    if div_last {
+                        rx_shift  = {rx_shift[6:0], i_miso};
+                        div_count = 0;
+                        if bit_count == 4'd7 {
+                            state = STATE_DONE;
+                        } else {
+                            tx_shift  =  {tx_shift[6:0], 1'b0};
+                            bit_count += 1;
+                            state     =  STATE_LOW;
+                        }
+                    } else {
+                        div_count = div_count_next[7:0];
+                    }
+                }
+                STATE_DONE: {
+                    state = STATE_IDLE;
+                }
+                default: {
+                    state = STATE_IDLE;
+                }
+            }
+        }
+    }
+}

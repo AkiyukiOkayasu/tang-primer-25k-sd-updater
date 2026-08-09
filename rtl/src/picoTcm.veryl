@@ -1,0 +1,49 @@
+/// PicoRV32 用 TCM。
+///
+/// # Parameters
+///
+/// - `ADDR_WIDTH`: アドレス幅 (既定 15bit = 32KB)。配列サイズは `1 << (ADDR_WIDTH - 2)` ワード
+/// - `HEX_FILE`  : `$readmemh` で読み込む hex ファイル名。Gowin 合成時の解決先が
+///   tool 依存のため、プロジェクト側でファイル配置と合わせて指定する
+pub module PicoTcm #(
+    param ADDR_WIDTH: u32    = 15           ,
+    param HEX_FILE  : string = "updater.hex",
+) (
+    i_clk: input clock,
+
+    i_mem_valid: input  logic            ,
+    i_mem_addr : input  logic<ADDR_WIDTH>,
+    i_mem_wdata: input  logic<32>        ,
+    i_mem_wstrb: input  logic<4>         ,
+    o_mem_rdata: output logic<32>        ,
+) {
+    let word_addr: logic<ADDR_WIDTH - 2> = i_mem_addr[ADDR_WIDTH - 1:2];
+
+    var mem: logic<32> [1 << (ADDR_WIDTH - 2)];
+
+    initial {
+        $readmemh(HEX_FILE, mem);
+    }
+
+    var rdata_reg: logic<32>;
+
+    always_ff {
+        if i_mem_valid && i_mem_wstrb == 0 {
+            rdata_reg = mem[word_addr];
+        }
+        if i_mem_valid && i_mem_wstrb[0] {
+            mem[word_addr][7:0] = i_mem_wdata[7:0];
+        }
+        if i_mem_valid && i_mem_wstrb[1] {
+            mem[word_addr][15:8] = i_mem_wdata[15:8];
+        }
+        if i_mem_valid && i_mem_wstrb[2] {
+            mem[word_addr][23:16] = i_mem_wdata[23:16];
+        }
+        if i_mem_valid && i_mem_wstrb[3] {
+            mem[word_addr][31:24] = i_mem_wdata[31:24];
+        }
+    }
+
+    assign o_mem_rdata = rdata_reg;
+}

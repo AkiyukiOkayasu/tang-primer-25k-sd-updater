@@ -1,0 +1,554 @@
+/// Updater firmware 用 peripheral register block。
+/// SD/Flash engine を firmware との MMIO 契約へ接続する。
+/// SD側はprotocolを持たず、firmware制御のSPI byte primitiveだけを提供する。
+///
+/// # MMIO contract (firmware 側 `mmio.rs` と対応)
+///
+/// `BASE` は PicoMemBus の peripheral 窓 (addr[PERI_ADDR_WIDTH-1:0]) 内の
+/// オフセット。firmware 側の絶対アドレスは `UPDATER_PERIPH_BASE + (ADDR_x - BASE)`
+/// で、firmware のレジスタオフセットは下記の通り。
+///
+/// ```text
+/// 0x00 STATUS            (read-only)
+/// 0x08 LED
+/// 0x0C DEBUG_STATE
+/// 0x10 SD_CONTROL        (START / CS_ASSERT)
+/// 0x14 SD_STATUS         (BUSY / ERROR)
+/// 0x18 SD_CLK_DIV
+/// 0x1C SD_TX
+/// 0x20 SD_RX             (read-only)
+/// 0x30 FLASH_ADDRESS
+/// 0x34 FLASH_LENGTH
+/// 0x38 FLASH_COMMAND     (ERASE_64K / PROGRAM_PAGE / READ / READ_JEDEC_ID)
+/// 0x3C FLASH_STATUS      (BUSY / ERROR)
+/// 0x40 FLASH_JEDEC_ID    (read-only)
+/// 0x44 RECONFIG_CONTROL  (ASSERT_LOW)
+/// 0x300 FLASH_BUFFER     (256 bytes)
+/// ```
+///
+/// # Parameters
+///
+/// - `BASE`          : peripheral 窓内のベースオフセット (既定 0x03_0000)
+/// - `FLASH_APP_BASE`: Flash 書き込み guard の app slot 先頭 (既定 0x0010_0000)
+/// - `FLASH_APP_END` : Flash 書き込み guard の app slot 終端 (既定 0x0020_0000)
+///
+/// `flash_buffer` は RAM なので if_reset で初期化しない (リセット LUT 消費防止)。
+#[allow(missing_reset_statement)]
+pub module UpdaterRegs #(
+    param BASE          : u32 = 32'h03_0000  ,
+    param FLASH_APP_BASE: u32 = 32'h0010_0000,
+    param FLASH_APP_END : u32 = 32'h0020_0000,
+) (
+    i_clk: input clock,
+    i_rst: input reset,
+
+    i_mem_valid: input  logic    ,
+    i_mem_addr : input  logic<22>,
+    i_mem_wdata: input  logic<32>,
+    i_mem_wstrb: input  logic<4> ,
+    o_mem_rdata: output logic<32>,
+
+    o_led_pattern: output logic<32>,
+    o_debug_state: output logic<4> ,
+
+    o_sd_cs_n: output logic,
+    o_sd_sclk: output logic,
+    o_sd_mosi: output logic,
+    i_sd_miso: input  logic,
+
+    o_flash_cs_n: output logic,
+    o_flash_sclk: output logic,
+    o_flash_mosi: output logic,
+    i_flash_miso: input  logic,
+
+    o_reconfig_trig_n: output logic,
+) {
+    const ADDR_STATUS          : logic<22> = BASE + 22'h0000;
+    const ADDR_LED             : logic<22> = BASE + 22'h0008;
+    const ADDR_DEBUG_STATE     : logic<22> = BASE + 22'h000C;
+    const ADDR_SD_CONTROL      : logic<22> = BASE + 22'h0010;
+    const ADDR_SD_STATUS       : logic<22> = BASE + 22'h0014;
+    const ADDR_SD_CLK_DIV      : logic<22> = BASE + 22'h0018;
+    const ADDR_SD_TX           : logic<22> = BASE + 22'h001C;
+    const ADDR_SD_RX           : logic<22> = BASE + 22'h0020;
+    const ADDR_FLASH_ADDRESS   : logic<22> = BASE + 22'h0030;
+    const ADDR_FLASH_LENGTH    : logic<22> = BASE + 22'h0034;
+    const ADDR_FLASH_COMMAND   : logic<22> = BASE + 22'h0038;
+    const ADDR_FLASH_STATUS    : logic<22> = BASE + 22'h003C;
+    const ADDR_FLASH_JEDEC_ID  : logic<22> = BASE + 22'h0040;
+    const ADDR_RECONFIG_CONTROL: logic<22> = BASE + 22'h0044;
+    const ADDR_FLASH_BUFFER    : logic<22> = BASE + 22'h0300;
+    const ADDR_FLASH_BUFFER_END: logic<22> = BASE + 22'h0400;
+
+    const SD_CONTROL_START    : logic<32> = 32'h0000_0001;
+    const SD_CONTROL_CS_ASSERT: logic<32> = 32'h0000_0002;
+    const SD_STATUS_BUSY      : logic<32> = 32'h0000_0001;
+    const SD_STATUS_ERROR     : logic<32> = 32'h0000_0002;
+
+    const SD_STATE_IDLE : logic<2> = 2'd0;
+    const SD_STATE_START: logic<2> = 2'd1;
+    const SD_STATE_WAIT : logic<2> = 2'd2;
+
+    const FLASH_COMMAND_ERASE_64K    : logic<32> = 32'd1;
+    const FLASH_COMMAND_PROGRAM_PAGE : logic<32> = 32'd2;
+    const FLASH_COMMAND_READ         : logic<32> = 32'd3;
+    const FLASH_COMMAND_READ_JEDEC_ID: logic<32> = 32'd4;
+    const FLASH_STATUS_BUSY          : logic<32> = 32'h0000_0001;
+    const FLASH_STATUS_ERROR         : logic<32> = 32'h0000_0002;
+    const RECONFIG_CONTROL_ASSERT_LOW: logic<32> = 32'h0000_0001;
+
+    const FLASH_PAGE_SIZE: logic<9> = 9'd256;
+
+    const FLASH_STATE_IDLE             : logic<5> = 5'd0;
+    const FLASH_STATE_ERROR            : logic<5> = 5'd1;
+    const FLASH_STATE_WE_START         : logic<5> = 5'd2;
+    const FLASH_STATE_WE_WAIT          : logic<5> = 5'd3;
+    const FLASH_STATE_WE_GAP           : logic<5> = 5'd4;
+    const FLASH_STATE_CMD_START        : logic<5> = 5'd5;
+    const FLASH_STATE_CMD_WAIT         : logic<5> = 5'd6;
+    const FLASH_STATE_ADDR2_START      : logic<5> = 5'd7;
+    const FLASH_STATE_ADDR2_WAIT       : logic<5> = 5'd8;
+    const FLASH_STATE_ADDR1_START      : logic<5> = 5'd9;
+    const FLASH_STATE_ADDR1_WAIT       : logic<5> = 5'd10;
+    const FLASH_STATE_ADDR0_START      : logic<5> = 5'd11;
+    const FLASH_STATE_ADDR0_WAIT       : logic<5> = 5'd12;
+    const FLASH_STATE_DATA_START       : logic<5> = 5'd13;
+    const FLASH_STATE_DATA_WAIT        : logic<5> = 5'd14;
+    const FLASH_STATE_DONE             : logic<5> = 5'd15;
+    const FLASH_STATE_POLL_GAP         : logic<5> = 5'd16;
+    const FLASH_STATE_STATUS_CMD_START : logic<5> = 5'd17;
+    const FLASH_STATE_STATUS_CMD_WAIT  : logic<5> = 5'd18;
+    const FLASH_STATE_STATUS_DATA_START: logic<5> = 5'd19;
+    const FLASH_STATE_STATUS_DATA_WAIT : logic<5> = 5'd20;
+
+    let is_write           : logic     = i_mem_wstrb != 0;
+    let flash_buffer_hit   : logic     = i_mem_addr >= ADDR_FLASH_BUFFER && i_mem_addr <: ADDR_FLASH_BUFFER_END;
+    let flash_buffer_offset: logic<22> = i_mem_addr - ADDR_FLASH_BUFFER;
+    let flash_buffer_index : logic<6>  = flash_buffer_offset[7:2];
+
+    var reg_led_pattern  : logic<32>     ;
+    var reg_debug_state  : logic<4>      ;
+    var reg_sd_control   : logic<32>     ;
+    var reg_sd_status    : logic<32>     ;
+    var reg_sd_clk_div   : logic<32>     ;
+    var reg_sd_tx        : logic<32>     ;
+    var reg_sd_rx        : logic<32>     ;
+    var reg_flash_address: logic<32>     ;
+    var reg_flash_length : logic<32>     ;
+    var reg_flash_command: logic<32>     ;
+    var reg_flash_status : logic<32>     ;
+    var reg_flash_jedec  : logic<32>     ;
+    var reg_reconfig_ctrl: logic<32>     ;
+    var read_data_reg    : logic<32>     ;
+    var flash_buffer     : logic<32> [64];
+
+    let flash_length_9 : logic<9>  = reg_flash_length[8:0];
+    let flash_range_end: logic<32> = reg_flash_address + reg_flash_length;
+    let flash_page_end : logic<9>  = {1'b0, reg_flash_address[7:0]} + flash_length_9;
+    let flash_length_ok: logic     = reg_flash_length != 0 && reg_flash_length <= 32'd256;
+    let flash_range_ok : logic     = reg_flash_address >= FLASH_APP_BASE && flash_range_end <= FLASH_APP_END;
+    let flash_page_ok  : logic     = flash_page_end <= FLASH_PAGE_SIZE;
+
+    assign o_led_pattern     = reg_led_pattern;
+    assign o_debug_state     = reg_debug_state;
+    assign o_mem_rdata       = read_data_reg;
+    assign o_reconfig_trig_n = if (reg_reconfig_ctrl & RECONFIG_CONTROL_ASSERT_LOW) != 0 ? 1'b0 : 1'b1;
+
+    var sd_state    : logic<2>;
+    var sd_spi_start: logic   ;
+    var sd_spi_done : logic   ;
+    var sd_spi_rx   : logic<8>;
+    var sd_spi_sclk : logic   ;
+    var sd_spi_mosi : logic   ;
+    var sd_clk_div_8: logic<8>;
+
+    assign sd_spi_start = sd_state == SD_STATE_START;
+    assign sd_clk_div_8 = reg_sd_clk_div[7:0];
+
+    inst sd_spi: SpiByteEngine (
+        i_clk              : i_clk         ,
+        i_rst              : i_rst         ,
+        i_start            : sd_spi_start  ,
+        i_half_period_cycle: sd_clk_div_8  ,
+        i_tx_data          : reg_sd_tx[7:0],
+        i_miso             : i_sd_miso     ,
+        o_busy             : _             ,
+        o_done             : sd_spi_done   ,
+        o_rx_data          : sd_spi_rx     ,
+        o_sclk             : sd_spi_sclk   ,
+        o_mosi             : sd_spi_mosi   ,
+    );
+
+    assign o_sd_cs_n = ~reg_sd_control[1];
+    assign o_sd_sclk = if sd_state != SD_STATE_IDLE ? sd_spi_sclk : 1'b0;
+    assign o_sd_mosi = if o_sd_cs_n ? 1'b1 : sd_spi_mosi;
+
+    var flash_state              : logic<5> ;
+    var flash_active_command     : logic<32>;
+    var flash_data_index         : logic<8> ;
+    var flash_spi_start          : logic    ;
+    var flash_spi_tx             : logic<8> ;
+    var flash_spi_done           : logic    ;
+    var flash_spi_rx             : logic<8> ;
+    var flash_spi_sclk           : logic    ;
+    var flash_spi_mosi           : logic    ;
+    var flash_buffer_tx_word     : logic<32>;
+    var flash_buffer_tx_byte     : logic<8> ;
+    var flash_poll_count         : logic<24>;
+    let flash_poll_count_low_next: logic<23> = flash_poll_count[22:0] + 23'd1;
+    let flash_poll_count_msb_next: logic     = flash_poll_count[23] ^ (flash_poll_count[22:0] == 23'h7F_FFFF);
+
+    assign flash_buffer_tx_word = flash_buffer[flash_data_index[7:2]];
+
+    always_comb {
+        case flash_data_index[1:0] {
+            2'd0   : flash_buffer_tx_byte = flash_buffer_tx_word[7:0];
+            2'd1   : flash_buffer_tx_byte = flash_buffer_tx_word[15:8];
+            2'd2   : flash_buffer_tx_byte = flash_buffer_tx_word[23:16];
+            default: flash_buffer_tx_byte = flash_buffer_tx_word[31:24];
+        }
+    }
+
+    always_comb {
+        flash_spi_start = 0;
+        flash_spi_tx    = 8'hFF;
+        case flash_state {
+            FLASH_STATE_WE_START: {
+                flash_spi_start = 1;
+                flash_spi_tx    = 8'h06;
+            }
+            FLASH_STATE_CMD_START: {
+                flash_spi_start = 1;
+                case flash_active_command {
+                    FLASH_COMMAND_ERASE_64K    : flash_spi_tx = 8'hD8;
+                    FLASH_COMMAND_PROGRAM_PAGE : flash_spi_tx = 8'h02;
+                    FLASH_COMMAND_READ         : flash_spi_tx = 8'h03;
+                    FLASH_COMMAND_READ_JEDEC_ID: flash_spi_tx = 8'h9F;
+                    default                    : flash_spi_tx = 8'hFF;
+                }
+            }
+            FLASH_STATE_ADDR2_START: {
+                flash_spi_start = 1;
+                flash_spi_tx    = reg_flash_address[23:16];
+            }
+            FLASH_STATE_ADDR1_START: {
+                flash_spi_start = 1;
+                flash_spi_tx    = reg_flash_address[15:8];
+            }
+            FLASH_STATE_ADDR0_START: {
+                flash_spi_start = 1;
+                flash_spi_tx    = reg_flash_address[7:0];
+            }
+            FLASH_STATE_DATA_START: {
+                flash_spi_start = 1;
+                if flash_active_command == FLASH_COMMAND_PROGRAM_PAGE {
+                    flash_spi_tx = flash_buffer_tx_byte;
+                }
+            }
+            FLASH_STATE_STATUS_CMD_START: {
+                flash_spi_start = 1;
+                flash_spi_tx    = 8'h05;
+            }
+            FLASH_STATE_STATUS_DATA_START: {
+                flash_spi_start = 1;
+            }
+            default: {}
+        }
+    }
+
+    inst flash_spi: SpiByteEngine (
+        i_clk              : i_clk          ,
+        i_rst              : i_rst          ,
+        i_start            : flash_spi_start,
+        i_half_period_cycle: 8'd1           ,
+        i_tx_data          : flash_spi_tx   ,
+        i_miso             : i_flash_miso   ,
+        o_busy             : _              ,
+        o_done             : flash_spi_done ,
+        o_rx_data          : flash_spi_rx   ,
+        o_sclk             : flash_spi_sclk ,
+        o_mosi             : flash_spi_mosi ,
+    );
+
+    assign o_flash_cs_n = flash_state == FLASH_STATE_IDLE || flash_state == FLASH_STATE_ERROR || flash_state
+        == FLASH_STATE_WE_GAP || flash_state == FLASH_STATE_POLL_GAP || flash_state == FLASH_STATE_DONE;
+    assign o_flash_sclk = if o_flash_cs_n ? 1'b0 : flash_spi_sclk;
+    assign o_flash_mosi = if o_flash_cs_n ? 1'b1 : flash_spi_mosi;
+
+    always_ff (i_clk, i_rst) {
+        if_reset {
+            reg_led_pattern   = 0;
+            reg_debug_state   = 0;
+            reg_sd_control    = 0;
+            reg_sd_clk_div    = 32'd64;
+            reg_sd_tx         = 32'h0000_00FF;
+            reg_flash_address = 0;
+            reg_flash_length  = 0;
+            reg_flash_command = 0;
+            reg_reconfig_ctrl = 0;
+            read_data_reg     = 0;
+        } else {
+            if i_mem_valid && is_write {
+                case i_mem_addr {
+                    ADDR_LED        : reg_led_pattern = i_mem_wdata;
+                    ADDR_DEBUG_STATE: reg_debug_state = i_mem_wdata[3:0];
+                    ADDR_SD_CONTROL : {
+                        reg_sd_control = if (i_mem_wdata & SD_CONTROL_CS_ASSERT) != 0 ? SD_CONTROL_CS_ASSERT : 0;
+                    }
+                    ADDR_SD_CLK_DIV      : reg_sd_clk_div    = i_mem_wdata;
+                    ADDR_SD_TX           : reg_sd_tx         = {24'd0, i_mem_wdata[7:0]};
+                    ADDR_FLASH_ADDRESS   : reg_flash_address = i_mem_wdata;
+                    ADDR_FLASH_LENGTH    : reg_flash_length  = i_mem_wdata;
+                    ADDR_FLASH_COMMAND   : reg_flash_command = i_mem_wdata;
+                    ADDR_RECONFIG_CONTROL: {
+                        reg_reconfig_ctrl = if (i_mem_wdata & RECONFIG_CONTROL_ASSERT_LOW) != 0 ?
+                            RECONFIG_CONTROL_ASSERT_LOW
+                        :
+                            0
+                        ;
+                    }
+                    default: {
+                        if flash_buffer_hit {
+                            flash_buffer[flash_buffer_index] = i_mem_wdata;
+                        }
+                    }
+                }
+            }
+            if i_mem_valid && !is_write {
+                case i_mem_addr {
+                    ADDR_STATUS          : read_data_reg = 0;
+                    ADDR_LED             : read_data_reg = reg_led_pattern;
+                    ADDR_DEBUG_STATE     : read_data_reg = {28'd0, reg_debug_state};
+                    ADDR_SD_CONTROL      : read_data_reg = reg_sd_control;
+                    ADDR_SD_STATUS       : read_data_reg = reg_sd_status;
+                    ADDR_SD_CLK_DIV      : read_data_reg = reg_sd_clk_div;
+                    ADDR_SD_TX           : read_data_reg = reg_sd_tx;
+                    ADDR_SD_RX           : read_data_reg = reg_sd_rx;
+                    ADDR_FLASH_ADDRESS   : read_data_reg = reg_flash_address;
+                    ADDR_FLASH_LENGTH    : read_data_reg = reg_flash_length;
+                    ADDR_FLASH_COMMAND   : read_data_reg = reg_flash_command;
+                    ADDR_FLASH_STATUS    : read_data_reg = reg_flash_status;
+                    ADDR_FLASH_JEDEC_ID  : read_data_reg = reg_flash_jedec;
+                    ADDR_RECONFIG_CONTROL: read_data_reg = reg_reconfig_ctrl;
+                    default              : {
+                        if flash_buffer_hit {
+                            read_data_reg = flash_buffer[flash_buffer_index];
+                        } else {
+                            read_data_reg = 0;
+                        }
+                    }
+                }
+            }
+            if flash_state == FLASH_STATE_DATA_WAIT && flash_spi_done && flash_active_command == FLASH_COMMAND_READ {
+                case flash_data_index[1:0] {
+                    2'd0   : flash_buffer[flash_data_index[7:2]][7:0]   = flash_spi_rx;
+                    2'd1   : flash_buffer[flash_data_index[7:2]][15:8]  = flash_spi_rx;
+                    2'd2   : flash_buffer[flash_data_index[7:2]][23:16] = flash_spi_rx;
+                    default: flash_buffer[flash_data_index[7:2]][31:24] = flash_spi_rx;
+                }
+            }
+        }
+    }
+
+    always_ff (i_clk, i_rst) {
+        if_reset {
+            sd_state      = SD_STATE_IDLE;
+            reg_sd_status = 0;
+            reg_sd_rx     = 0;
+        } else {
+            case sd_state {
+                SD_STATE_IDLE: {
+                    if i_mem_valid && is_write && i_mem_addr == ADDR_SD_CONTROL && (i_mem_wdata & SD_CONTROL_START)
+                        != 0 {
+                        if reg_sd_status[0] {
+                            reg_sd_status = SD_STATUS_ERROR;
+                        } else {
+                            reg_sd_status = SD_STATUS_BUSY;
+                            sd_state      = SD_STATE_START;
+                        }
+                    }
+                }
+                SD_STATE_START: {
+                    sd_state = SD_STATE_WAIT;
+                }
+                SD_STATE_WAIT: {
+                    if sd_spi_done {
+                        reg_sd_rx     = {24'd0, sd_spi_rx};
+                        reg_sd_status = 0;
+                        sd_state      = SD_STATE_IDLE;
+                    }
+                }
+                default: {
+                    sd_state = SD_STATE_IDLE;
+                }
+            }
+        }
+    }
+
+    always_ff (i_clk, i_rst) {
+        if_reset {
+            flash_state          = FLASH_STATE_IDLE;
+            flash_active_command = 0;
+            flash_data_index     = 0;
+            flash_poll_count     = 0;
+            reg_flash_status     = 0;
+            reg_flash_jedec      = 0;
+        } else {
+            case flash_state {
+                FLASH_STATE_IDLE: {
+                    if i_mem_valid && is_write && i_mem_addr == ADDR_FLASH_COMMAND {
+                        reg_flash_status     = FLASH_STATUS_BUSY;
+                        flash_active_command = i_mem_wdata;
+                        flash_data_index     = 0;
+                        flash_poll_count     = 0;
+                        if i_mem_wdata == FLASH_COMMAND_READ_JEDEC_ID {
+                            reg_flash_jedec = 0;
+                            flash_state     = FLASH_STATE_CMD_START;
+                        } else if i_mem_wdata == FLASH_COMMAND_ERASE_64K {
+                            if reg_flash_address[15:0] == 16'h0000 && reg_flash_address >= FLASH_APP_BASE
+                                && reg_flash_address <: FLASH_APP_END {
+                                flash_state = FLASH_STATE_WE_START;
+                            } else {
+                                flash_state = FLASH_STATE_ERROR;
+                            }
+                        } else if i_mem_wdata == FLASH_COMMAND_PROGRAM_PAGE {
+                            if flash_length_ok && flash_range_ok && flash_page_ok {
+                                flash_state = FLASH_STATE_WE_START;
+                            } else {
+                                flash_state = FLASH_STATE_ERROR;
+                            }
+                        } else if i_mem_wdata == FLASH_COMMAND_READ {
+                            if flash_length_ok && flash_range_ok {
+                                flash_state = FLASH_STATE_CMD_START;
+                            } else {
+                                flash_state = FLASH_STATE_ERROR;
+                            }
+                        } else {
+                            flash_state = FLASH_STATE_ERROR;
+                        }
+                    }
+                }
+                FLASH_STATE_ERROR: {
+                    reg_flash_status = FLASH_STATUS_ERROR;
+                    flash_state      = FLASH_STATE_IDLE;
+                }
+                FLASH_STATE_WE_START: {
+                    flash_state = FLASH_STATE_WE_WAIT;
+                }
+                FLASH_STATE_WE_WAIT: {
+                    if flash_spi_done {
+                        flash_state = FLASH_STATE_WE_GAP;
+                    }
+                }
+                FLASH_STATE_WE_GAP: {
+                    flash_state = FLASH_STATE_CMD_START;
+                }
+                FLASH_STATE_CMD_START: {
+                    flash_state = FLASH_STATE_CMD_WAIT;
+                }
+                FLASH_STATE_CMD_WAIT: {
+                    if flash_spi_done {
+                        if flash_active_command == FLASH_COMMAND_READ_JEDEC_ID {
+                            flash_state = FLASH_STATE_DATA_START;
+                        } else {
+                            flash_state = FLASH_STATE_ADDR2_START;
+                        }
+                    }
+                }
+                FLASH_STATE_ADDR2_START: {
+                    flash_state = FLASH_STATE_ADDR2_WAIT;
+                }
+                FLASH_STATE_ADDR2_WAIT: {
+                    if flash_spi_done {
+                        flash_state = FLASH_STATE_ADDR1_START;
+                    }
+                }
+                FLASH_STATE_ADDR1_START: {
+                    flash_state = FLASH_STATE_ADDR1_WAIT;
+                }
+                FLASH_STATE_ADDR1_WAIT: {
+                    if flash_spi_done {
+                        flash_state = FLASH_STATE_ADDR0_START;
+                    }
+                }
+                FLASH_STATE_ADDR0_START: {
+                    flash_state = FLASH_STATE_ADDR0_WAIT;
+                }
+                FLASH_STATE_ADDR0_WAIT: {
+                    if flash_spi_done {
+                        if flash_active_command == FLASH_COMMAND_ERASE_64K {
+                            flash_state = FLASH_STATE_POLL_GAP;
+                        } else {
+                            flash_state = FLASH_STATE_DATA_START;
+                        }
+                    }
+                }
+                FLASH_STATE_DATA_START: {
+                    flash_state = FLASH_STATE_DATA_WAIT;
+                }
+                FLASH_STATE_DATA_WAIT: {
+                    if flash_spi_done {
+                        if flash_active_command == FLASH_COMMAND_READ_JEDEC_ID {
+                            case flash_data_index {
+                                8'd0   : reg_flash_jedec[7:0]   = flash_spi_rx;
+                                8'd1   : reg_flash_jedec[15:8]  = flash_spi_rx;
+                                default: reg_flash_jedec[23:16] = flash_spi_rx;
+                            }
+                            if flash_data_index == 8'd2 {
+                                flash_state = FLASH_STATE_DONE;
+                            } else {
+                                flash_data_index += 1;
+                                flash_state      =  FLASH_STATE_DATA_START;
+                            }
+                        } else {
+                            if ({1'b0, flash_data_index} + 9'd1 == flash_length_9) {
+                                if flash_active_command == FLASH_COMMAND_PROGRAM_PAGE {
+                                    flash_state = FLASH_STATE_POLL_GAP;
+                                } else {
+                                    flash_state = FLASH_STATE_DONE;
+                                }
+                            } else {
+                                flash_data_index += 1;
+                                flash_state      =  FLASH_STATE_DATA_START;
+                            }
+                        }
+                    }
+                }
+                FLASH_STATE_POLL_GAP: {
+                    flash_state = FLASH_STATE_STATUS_CMD_START;
+                }
+                FLASH_STATE_STATUS_CMD_START: {
+                    flash_state = FLASH_STATE_STATUS_CMD_WAIT;
+                }
+                FLASH_STATE_STATUS_CMD_WAIT: {
+                    if flash_spi_done {
+                        flash_state = FLASH_STATE_STATUS_DATA_START;
+                    }
+                }
+                FLASH_STATE_STATUS_DATA_START: {
+                    flash_state = FLASH_STATE_STATUS_DATA_WAIT;
+                }
+                FLASH_STATE_STATUS_DATA_WAIT: {
+                    if flash_spi_done {
+                        if flash_spi_rx[0] == 0 {
+                            flash_state = FLASH_STATE_DONE;
+                        } else if flash_poll_count == 24'hFF_FFFF {
+                            flash_state = FLASH_STATE_ERROR;
+                        } else {
+                            flash_poll_count = {flash_poll_count_msb_next, flash_poll_count_low_next};
+                            flash_state      = FLASH_STATE_POLL_GAP;
+                        }
+                    }
+                }
+                FLASH_STATE_DONE: {
+                    reg_flash_status = 0;
+                    flash_state      = FLASH_STATE_IDLE;
+                }
+                default: {
+                    flash_state = FLASH_STATE_IDLE;
+                }
+            }
+        }
+    }
+
+}

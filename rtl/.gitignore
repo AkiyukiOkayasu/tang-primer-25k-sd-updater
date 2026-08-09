@@ -1,0 +1,5 @@
+.build/
+target/
+dependencies/
+*.f
+tests/*_obj_dir/

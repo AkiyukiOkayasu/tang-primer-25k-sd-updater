@@ -1,0 +1,99 @@
+/// PicoRV32 memory bus。
+/// `i_mem_addr[PERI_ADDR_WIDTH]` が 0 を TCM、1 を peripheral に振り分ける。
+///
+/// # Parameters
+///
+/// - `TCM_ADDR_WIDTH` : TCM アドレス幅 (既定 15bit = 32KB)
+/// - `PERI_ADDR_WIDTH`: peripheral アドレス幅 (既定 22bit。bit PERI_ADDR_WIDTH が振り分け bit)
+pub module PicoMemBus #(
+    param TCM_ADDR_WIDTH : u32 = 15,
+    param PERI_ADDR_WIDTH: u32 = 22,
+) (
+    i_clk: input clock,
+    i_rst: input reset,
+
+    i_mem_valid: input  logic    ,
+    i_mem_addr : input  logic<32>,
+    i_mem_wdata: input  logic<32>,
+    i_mem_wstrb: input  logic<4> ,
+    o_mem_ready: output logic    ,
+    o_mem_rdata: output logic<32>,
+
+    o_tcm_valid: output logic                ,
+    o_tcm_addr : output logic<TCM_ADDR_WIDTH>,
+    o_tcm_wdata: output logic<32>            ,
+    o_tcm_wstrb: output logic<4>             ,
+    i_tcm_rdata: input  logic<32>            ,
+
+    o_peri_valid: output logic                 ,
+    o_peri_addr : output logic<PERI_ADDR_WIDTH>,
+    o_peri_wdata: output logic<32>             ,
+    o_peri_wstrb: output logic<4>              ,
+    i_peri_rdata: input  logic<32>             ,
+) {
+    const STATE_IDLE     : logic<2> = 2'd0;
+    const STATE_READ_TCM : logic<2> = 2'd1;
+    const STATE_READ_PERI: logic<2> = 2'd2;
+    const STATE_PERI_RESP: logic<2> = 2'd3;
+
+    let sel_tcm : logic = i_mem_addr[PERI_ADDR_WIDTH] == 0;
+    let is_write: logic = i_mem_wstrb != 0;
+
+    var state    : logic<2>;
+    var sel_tcm_r: logic   ;
+
+    let issue_req: logic = state == STATE_IDLE && i_mem_valid;
+
+    assign o_tcm_valid = issue_req && sel_tcm;
+    assign o_tcm_addr  = i_mem_addr[TCM_ADDR_WIDTH - 1:0];
+    assign o_tcm_wdata = i_mem_wdata;
+    assign o_tcm_wstrb = i_mem_wstrb;
+
+    assign o_peri_valid = issue_req && !sel_tcm;
+    assign o_peri_addr  = i_mem_addr[PERI_ADDR_WIDTH - 1:0];
+    assign o_peri_wdata = i_mem_wdata;
+    assign o_peri_wstrb = i_mem_wstrb;
+
+    assign o_mem_ready = (state == STATE_IDLE && i_mem_valid && is_write) || (state == STATE_READ_TCM)
+        || (state == STATE_PERI_RESP);
+
+    always_comb {
+        if sel_tcm_r {
+            o_mem_rdata = i_tcm_rdata;
+        } else {
+            o_mem_rdata = i_peri_rdata;
+        }
+    }
+
+    always_ff (i_clk, i_rst) {
+        if_reset {
+            state     = STATE_IDLE;
+            sel_tcm_r = 0;
+        } else {
+            case state {
+                STATE_IDLE: {
+                    if i_mem_valid && !is_write {
+                        sel_tcm_r = sel_tcm;
+                        if sel_tcm {
+                            state = STATE_READ_TCM;
+                        } else {
+                            state = STATE_READ_PERI;
+                        }
+                    }
+                }
+                STATE_READ_TCM: {
+                    state = STATE_IDLE;
+                }
+                STATE_READ_PERI: {
+                    state = STATE_PERI_RESP;
+                }
+                STATE_PERI_RESP: {
+                    state = STATE_IDLE;
+                }
+                default: {
+                    state = STATE_IDLE;
+                }
+            }
+        }
+    }
+}

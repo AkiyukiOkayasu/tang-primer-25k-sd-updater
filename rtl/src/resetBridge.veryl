@@ -1,0 +1,55 @@
+/// リセットブリッジ: 非同期アクティブハイリセットを同期アクティブハイリセットに変換
+///
+/// 非同期リセット入力(rst)を安全に同期リセット出力(rst_sync)へ変換する。
+/// - 非同期アサート / 同期デアサート方式
+/// - 2段FFでデアサートエッジのメタスタビリティを吸収
+/// - DELAY_CYCLESサイクルの解除遅延
+///
+/// 動作:
+///   rst=H → sync_ff1/ff2 が非同期に 1 へプリセット → rst_sync 即アサート
+///   rst=L → 0 が2段FFを伝搬 → sync_ff2=0 になってから遅延カウント開始
+///            → DELAY_CYCLES経過後に rst_sync デアサート
+pub module rst_bridge #(
+    param DELAY_CYCLES: u32 = 256, /// リセット解除後の遅延サイクル数
+) (
+    clk     : input  clock           , /// クロック入力
+    rst     : input  reset_async_high, /// 非同期アクティブハイリセット入力
+    rst_sync: output reset_sync_high , /// 同期＋遅延済みアクティブハイリセット出力
+) {
+    // =========================================
+    // 2段FFシンクロナイザ (非同期アサート / 同期デアサート)
+    // =========================================
+    // rst=H で非同期プリセット(1), rst=L でクロック同期に 0 を伝搬。
+    // シンクロナイザ自身は rst の「値」をサンプリングしない。
+    // 入力は定数 0 固定で、非同期プリセットからの復帰を2段で安定化する。
+    var sync_ff1: logic;
+    var sync_ff2: logic;
+
+    always_ff (clk, rst) {
+        if_reset {
+            sync_ff1 = 1;
+            sync_ff2 = 1;
+        } else {
+            sync_ff1 = 0;
+            sync_ff2 = sync_ff1;
+        }
+    }
+
+    // =========================================
+    // リセット解除遅延カウンタ
+    // =========================================
+    // sync_ff2 が同期的に 0 になった後、DELAY_CYCLES 待ってからリセット解除。
+    // カウンタ自身は sync_ff2=H (リセット中) のとき 0 にリセットされる。
+    var delay_cnt: logic<$clog2(DELAY_CYCLES + 1)>;
+
+    always_ff (clk) {
+        if sync_ff2 {
+            delay_cnt = 0;
+        } else if delay_cnt <: DELAY_CYCLES {
+            delay_cnt = delay_cnt + 1;
+        }
+    }
+
+    // sync_ff2がアサート中 または 遅延カウント未完了 → リセットアサート
+    assign rst_sync = (sync_ff2 || (delay_cnt <: DELAY_CYCLES)) as reset_sync_high;
+}

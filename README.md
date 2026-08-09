@@ -19,11 +19,23 @@ Flash への書き込み、再構成トリガまでを 1 つのフローとし�
 crates/
 ├── sd-updater/        # no_std コア。BoardIo / Updater / UpdateSpec / SD・Flash・package 処理
 └── sd-updater-build/  # build.rs 補助。update_spec.conf → $OUT_DIR/update_spec.rs を生成
+rtl/
+├── src/               # updater RTL (Veryl ライブラリ fpga_sd_updater)
+│   ├── PicoMemBus     # CPU bus の TCM / peripheral 振り分け (TCM_ADDR_WIDTH / PERI_ADDR_WIDTH)
+│   ├── PicoTcm        # firmware 実行用 TCM (ADDR_WIDTH / HEX_FILE)
+│   ├── rst_bridge     # 同期リセットブリッジ (DELAY_CYCLES)
+│   ├── SpiByteEngine  # SPI mode 0 byte 転送エンジン
+│   └── UpdaterRegs    # MMIO register block (BASE / FLASH_APP_BASE / FLASH_APP_END)
+└── tests/             # Verilator cpp テスト (updater_regs / spi_byte_engine)
 tools/
 ├── update_spec.py     # Python 側の spec パーサ (sd-updater-build と REQUIRED_KEYS を同期)
 ├── make_update_package/   # update package (FPGAOSC.UPD) 生成
 └── make_factory_image/    # factory flash image 生成
 ```
+
+前提: Veryl 0.20 系 (`rtl/` のビルドに必要)。RTL は path 依存で参照し、
+`Veryl.lock` が相対パスを記録するため、共有 repo を `~/Documents/AkiyukiProjects/gowin-sd-updater`
+に配置する前提とする。
 
 ## 統合手順 (プロジェクト側)
 
@@ -68,6 +80,40 @@ loop {
 
 5. ホストツールは `tools/make_update_package/make_update_package.py` と
    `tools/make_factory_image/make_factory_image.py` を `--spec <update_spec.conf>` 付きで実行する。
+
+## RTL 統合手順 (Veryl)
+
+1. プロジェクトの `Veryl.toml` に依存を追加 (共有 repo は
+   `~/Documents/AkiyukiProjects/gowin-sd-updater` に配置する前提):
+
+```toml
+[dependencies]
+fpga_sd_updater = { path = "../../../../../../gowin-sd-updater/rtl" }
+```
+
+   パスはプロジェクトの `Veryl.toml` 位置から共有 repo までの階層数で調整する。
+
+2. `top.veryl` で共有モジュールを inst し、パラメータを明示的に渡す:
+
+```veryl
+inst regs: fpga_sd_updater::UpdaterRegs #(
+    BASE          : 32'h03_0000,
+    FLASH_APP_BASE: 32'h0010_0000,
+    FLASH_APP_END : 32'h0020_0000,
+) ( ... );
+
+inst tcm: fpga_sd_updater::PicoTcm #(
+    ADDR_WIDTH: 15,
+    HEX_FILE  : "updater.hex",
+) ( ... );
+```
+
+   `BASE` / `FLASH_APP_*` / TCM サイズ・hex 名はプロジェクトの flash layout と
+   firmware (`mmio.rs`) に合わせる。MMIO 契約は `updaterRegs.veryl` の doc comment
+   (レジスタマップ) と firmware の `mmio.rs` を突き合わせる。
+
+3. `$readmemh` の hex ファイルは tool ごとに解決先が異なるため、生成される
+   `dependencies/fpga_sd_updater/src/` を含む複数箇所に配置して合成で検証する。
 
 ## リリース同期
 

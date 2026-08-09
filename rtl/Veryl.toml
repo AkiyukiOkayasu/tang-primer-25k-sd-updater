@@ -1,0 +1,11 @@
+[project]
+name = "fpga_sd_updater"
+version = "0.1.0"
+description = "Reusable SD card updater RTL for Gowin FPGA + PicoRV32"
+authors = ["Akiyuki Okayasu"]
+
+[build]
+sources = ["src"]
+clock_type = "posedge"
+reset_type = "sync_high"
+target = { type = "directory", path = "target/" }
