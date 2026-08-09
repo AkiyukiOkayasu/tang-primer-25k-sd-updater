@@ -120,7 +120,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     /// 1 回呼ぶごとに更新フローを最後まで進める。終端状態に達した後は同じ状態を返す。
     ///
     /// SD カードが無い・更新ファイルが無い・カードが読めない場合は、そのまま通常 app へ
-    /// 再構成して移行する。app slot が空/破損なら config 失敗で次回電源投入時に
+    /// reconfigして移行する。app slot が空/破損なら config 失敗で次回電源投入時に
     /// 先頭 updater へ戻る (Golden fallback 未使用のため)。
     pub fn poll_once(&mut self) -> UpdateStatus {
         let _ = self.io.status();

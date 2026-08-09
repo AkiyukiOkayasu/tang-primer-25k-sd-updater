@@ -13,7 +13,7 @@ impl embedded_hal::spi::Error for IoError {
     }
 }
 
-/// SD / Flash / 再構成を抽象化するポート。
+/// SD / Flash / reconfigを抽象化するポート。
 ///
 /// 実装例は各プロジェクトの `mmio.rs` を参照。SD と Flash は同時に使わない契約で、
 /// 呼び出し順の直列化は updater 側が保証する。

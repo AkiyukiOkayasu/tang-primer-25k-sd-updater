@@ -2,7 +2,7 @@
 
 Gowin FPGA + PicoRV32 前提の SD カードファームウェア更新機能の共有実装。
 SD/FAT 読み出し、update package の検証 (magic / target / CRC32 / SHA256)、
-Flash への書き込み、再構成トリガまでを 1 つのフローとして提供する。
+Flash への書き込み、reconfigトリガまでを 1 つのフローとして提供する。
 
 ## 前提 (プロジェクト側の制約)
 
@@ -11,20 +11,20 @@ Flash への書き込み、再構成トリガまでを 1 つのフローとし�
 - Veryl 設定は `clock_type=posedge` / `reset_type=sync_high`
 - システムクロック 50 MHz (delay の tick 換算に使用)
 - updater firmware は TCM 32KB 以内
-- 再構成は MultiBoot 方式で、`RECONFIG_N` への Low pulse (hotboot / MSPI_JUMP は使わない)。
+- reconfigは MultiBoot 方式で、`RECONFIG_N` への Low pulse (hotboot / MSPI_JUMP は使わない)。
   `RECONFIG_N` ネットには外部プルアップが必要 (基板に無い場合は 10kΩ 程度を追加)
 
 ## 動作仕様
 
-- SD カードに更新ファイルがあれば検証して app slot に書き込み、成功後に再構成して app へ移行する
+- SD カードに更新ファイルがあれば検証して app slot に書き込み、成功後にreconfigして app へ移行する
 - 書き込み前に **app slot の現内容の SHA256 をパッケージと比較**し、一致していれば
-  書き込みをスキップして再構成のみ行う。内容ベースの比較なので、書き込み後の腐食や
+  書き込みをスキップしてreconfigのみ行う。内容ベースの比較なので、書き込み後の腐食や
   部分書き込みは必ず検出して書き直す (自己修復)
 - SD カードが挿入されていない場合はカード検出ピン (STATUS bit0) で即判定し、
-  SD 初期化リトライを待たずに再構成して app へ移行する (カード検出の極性は
+  SD 初期化リトライを待たずにreconfigして app へ移行する (カード検出の極性は
   `BoardIo::sd_card_detect` の実装側で解釈する)
 - SD カードはあるが更新ファイルが無い / カードが読めない場合は、SD 探索失敗後に
-  そのまま再構成して app へ移行する
+  そのままreconfigして app へ移行する
 - 更新ファイルがあるが検証・書き込みに失敗した場合は updater に留まる (エラー状態を報告)
 
 ## 開発環境の前提
