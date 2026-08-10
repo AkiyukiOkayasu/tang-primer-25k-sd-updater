@@ -102,9 +102,8 @@ header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 
 ## 4. プロジェクトへの追加手順
 
-> 配置前提: 共有 repo は `~/Documents/AkiyukiProjects/gowin-sd-updater` に置き、
-> プロジェクトから相対パスで参照する (以下はプロジェクトを `Firmware/<プロジェクト名>`
-> の下に置いた場合のパス。階層が違う場合は調整)。
+crates は crates.io、RTL ライブラリは Veryl registry から取得する (ローカルに
+共有 repo を clone する必要はない)。
 
 ### 4.1 Cargo (firmware)
 
@@ -117,10 +116,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sd_updater = { package = "sd-updater", path = "../gowin-sd-updater/crates/sd-updater" }
+sd_updater = { package = "sd-updater", version = "0.1" }
 
 [build-dependencies]
-sd-updater-build = { path = "../gowin-sd-updater/crates/sd-updater-build" }
+sd-updater-build = { version = "0.1" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 panic-halt = "1.0.0"
@@ -223,16 +222,13 @@ reset_type = "sync_high"
 target = { type = "directory", path = "target/" }
 
 [dependencies]
-fpga_sd_updater = { path = "../../../../../../gowin-sd-updater/rtl" }
+fpga_sd_updater = { version = "0.1.0" }
 ```
-
-(パスはプロジェクトの `Veryl.toml` 位置から共有 repo までの階層数で調整)
 
 ### 4.3 update_spec.conf
 
 プロジェクト固有の値 (hw_id / flash layout) を定義する唯一のファイル。
-キー集合と構文は `crates/sd-updater-build/src/lib.rs` の `SAMPLE_CONF`
-(テスト内) を参照。
+キー集合と構文は sd-updater-build のドキュメントを参照。
 
 ```text
 package.file_name=FPGAOSC.UPD

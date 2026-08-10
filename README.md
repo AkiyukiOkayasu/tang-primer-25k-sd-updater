@@ -80,8 +80,9 @@ inst tcm: fpga_sd_updater::PicoTcm #(
 ### ホストツール
 
 ```sh
-cargo run -p sd-updater-tools -- make-update-package app.bin FPGAOSC.UPD --spec update_spec.conf
-cargo run -p sd-updater-tools -- make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.conf
+cargo install sd-updater-tools
+sd-updater-tools make-update-package app.bin FPGAOSC.UPD --spec update_spec.conf
+sd-updater-tools make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.conf
 ```
 
 ## 詳細
