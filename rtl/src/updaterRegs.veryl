@@ -1,3 +1,58 @@
+/// updater RTL の状態定義。
+///
+/// `UpdaterState` は firmware の `UpdateStatus::state_code()` と対応する契約のため、
+/// 値を明示し幅も固定する。FSM の状態は連番でよいため値を省略し、幅は推論させる。
+pub package updater_pkg {
+    /// firmware 状態表示コード (firmware の `UpdateStatus.state_code()` と対応)。
+    enum UpdaterState: logic<4> {
+        IDLE = 0,
+        SD_INIT = 1,
+        SD_POWER_WAIT = 2,
+        SD_DUMMY_CLOCK = 3,
+        SD_CMD0 = 4,
+        FAT_FILE = 8,
+        HEADER_READ = 9,
+        HEADER_VALID = 10,
+        PAYLOAD_VERIFY = 11,
+        FLASH_JEDEC = 12,
+        APP_SLOT_SKIP = 13,
+        FLASH_WRITE = 14,
+        ERROR = 15,
+    }
+
+    /// SD 転送 FSM の状態。
+    enum SdState {
+        IDLE,
+        START,
+        WAIT,
+    }
+
+    /// Flash 操作 FSM の状態。
+    enum FlashState {
+        IDLE,
+        ERROR,
+        WE_START,
+        WE_WAIT,
+        WE_GAP,
+        CMD_START,
+        CMD_WAIT,
+        ADDR2_START,
+        ADDR2_WAIT,
+        ADDR1_START,
+        ADDR1_WAIT,
+        ADDR0_START,
+        ADDR0_WAIT,
+        DATA_START,
+        DATA_WAIT,
+        DONE,
+        POLL_GAP,
+        STATUS_CMD_START,
+        STATUS_CMD_WAIT,
+        STATUS_DATA_START,
+        STATUS_DATA_WAIT,
+    }
+}
+
 /// Updater firmware 用 peripheral register block。
 /// SD/Flash engine を firmware との MMIO 契約へ接続する。
 /// SD側はprotocolを持たず、firmware制御のSPI byte primitiveだけを提供する。
@@ -87,10 +142,6 @@ pub module UpdaterRegs #(
     const SD_STATUS_BUSY      : logic<32> = 32'h0000_0001;
     const SD_STATUS_ERROR     : logic<32> = 32'h0000_0002;
 
-    const SD_STATE_IDLE : logic<2> = 2'd0;
-    const SD_STATE_START: logic<2> = 2'd1;
-    const SD_STATE_WAIT : logic<2> = 2'd2;
-
     const FLASH_COMMAND_ERASE_64K    : logic<32> = 32'd1;
     const FLASH_COMMAND_PROGRAM_PAGE : logic<32> = 32'd2;
     const FLASH_COMMAND_READ         : logic<32> = 32'd3;
@@ -101,47 +152,25 @@ pub module UpdaterRegs #(
 
     const FLASH_PAGE_SIZE: logic<9> = 9'd256;
 
-    const FLASH_STATE_IDLE             : logic<5> = 5'd0;
-    const FLASH_STATE_ERROR            : logic<5> = 5'd1;
-    const FLASH_STATE_WE_START         : logic<5> = 5'd2;
-    const FLASH_STATE_WE_WAIT          : logic<5> = 5'd3;
-    const FLASH_STATE_WE_GAP           : logic<5> = 5'd4;
-    const FLASH_STATE_CMD_START        : logic<5> = 5'd5;
-    const FLASH_STATE_CMD_WAIT         : logic<5> = 5'd6;
-    const FLASH_STATE_ADDR2_START      : logic<5> = 5'd7;
-    const FLASH_STATE_ADDR2_WAIT       : logic<5> = 5'd8;
-    const FLASH_STATE_ADDR1_START      : logic<5> = 5'd9;
-    const FLASH_STATE_ADDR1_WAIT       : logic<5> = 5'd10;
-    const FLASH_STATE_ADDR0_START      : logic<5> = 5'd11;
-    const FLASH_STATE_ADDR0_WAIT       : logic<5> = 5'd12;
-    const FLASH_STATE_DATA_START       : logic<5> = 5'd13;
-    const FLASH_STATE_DATA_WAIT        : logic<5> = 5'd14;
-    const FLASH_STATE_DONE             : logic<5> = 5'd15;
-    const FLASH_STATE_POLL_GAP         : logic<5> = 5'd16;
-    const FLASH_STATE_STATUS_CMD_START : logic<5> = 5'd17;
-    const FLASH_STATE_STATUS_CMD_WAIT  : logic<5> = 5'd18;
-    const FLASH_STATE_STATUS_DATA_START: logic<5> = 5'd19;
-    const FLASH_STATE_STATUS_DATA_WAIT : logic<5> = 5'd20;
-
     let is_write           : logic     = i_mem_wstrb != 0;
     let flash_buffer_hit   : logic     = i_mem_addr >= ADDR_FLASH_BUFFER && i_mem_addr <: ADDR_FLASH_BUFFER_END;
     let flash_buffer_offset: logic<22> = i_mem_addr - ADDR_FLASH_BUFFER;
     let flash_buffer_index : logic<6>  = flash_buffer_offset[7:2];
 
-    var reg_state        : logic<4>      ;
-    var reg_sd_control   : logic<32>     ;
-    var reg_sd_status    : logic<32>     ;
-    var reg_sd_clk_div   : logic<32>     ;
-    var reg_sd_tx        : logic<32>     ;
-    var reg_sd_rx        : logic<32>     ;
-    var reg_flash_address: logic<32>     ;
-    var reg_flash_length : logic<32>     ;
-    var reg_flash_command: logic<32>     ;
-    var reg_flash_status : logic<32>     ;
-    var reg_flash_jedec  : logic<32>     ;
-    var reg_reconfig_ctrl: logic<32>     ;
-    var read_data_reg    : logic<32>     ;
-    var flash_buffer     : logic<32> [64];
+    var reg_state        : updater_pkg::UpdaterState         ;
+    var reg_sd_control   : logic                    <32>     ;
+    var reg_sd_status    : logic                    <32>     ;
+    var reg_sd_clk_div   : logic                    <32>     ;
+    var reg_sd_tx        : logic                    <32>     ;
+    var reg_sd_rx        : logic                    <32>     ;
+    var reg_flash_address: logic                    <32>     ;
+    var reg_flash_length : logic                    <32>     ;
+    var reg_flash_command: logic                    <32>     ;
+    var reg_flash_status : logic                    <32>     ;
+    var reg_flash_jedec  : logic                    <32>     ;
+    var reg_reconfig_ctrl: logic                    <32>     ;
+    var read_data_reg    : logic                    <32>     ;
+    var flash_buffer     : logic                    <32> [64];
 
     let flash_length_9 : logic<9>  = reg_flash_length[8:0];
     let flash_range_end: logic<32> = reg_flash_address + reg_flash_length;
@@ -154,15 +183,15 @@ pub module UpdaterRegs #(
     assign o_mem_rdata       = read_data_reg;
     assign o_reconfig_trig_n = if (reg_reconfig_ctrl & RECONFIG_CONTROL_ASSERT_LOW) != 0 ? 1'b0 : 1'b1;
 
-    var sd_state    : logic<2>;
-    var sd_spi_start: logic   ;
-    var sd_spi_done : logic   ;
-    var sd_spi_rx   : logic<8>;
-    var sd_spi_sclk : logic   ;
-    var sd_spi_mosi : logic   ;
-    var sd_clk_div_8: logic<8>;
+    var sd_state    : updater_pkg::SdState   ;
+    var sd_spi_start: logic                  ;
+    var sd_spi_done : logic                  ;
+    var sd_spi_rx   : logic               <8>;
+    var sd_spi_sclk : logic                  ;
+    var sd_spi_mosi : logic                  ;
+    var sd_clk_div_8: logic               <8>;
 
-    assign sd_spi_start = sd_state == SD_STATE_START;
+    assign sd_spi_start = sd_state == updater_pkg::SdState::START;
     assign sd_clk_div_8 = reg_sd_clk_div[7:0];
 
     inst sd_spi: SpiByteEngine (
@@ -180,23 +209,24 @@ pub module UpdaterRegs #(
     );
 
     assign o_sd_cs_n = ~reg_sd_control[1];
-    assign o_sd_sclk = if sd_state != SD_STATE_IDLE ? sd_spi_sclk : 1'b0;
+    assign o_sd_sclk = if sd_state != updater_pkg::SdState::IDLE ? sd_spi_sclk : 1'b0;
     assign o_sd_mosi = if o_sd_cs_n ? 1'b1 : sd_spi_mosi;
 
-    var flash_state              : logic<5> ;
-    var flash_active_command     : logic<32>;
-    var flash_data_index         : logic<8> ;
-    var flash_spi_start          : logic    ;
-    var flash_spi_tx             : logic<8> ;
-    var flash_spi_done           : logic    ;
-    var flash_spi_rx             : logic<8> ;
-    var flash_spi_sclk           : logic    ;
-    var flash_spi_mosi           : logic    ;
-    var flash_buffer_tx_word     : logic<32>;
-    var flash_buffer_tx_byte     : logic<8> ;
-    var flash_poll_count         : logic<24>;
-    let flash_poll_count_low_next: logic<23> = flash_poll_count[22:0] + 23'd1;
-    let flash_poll_count_msb_next: logic     = flash_poll_count[23] ^ (flash_poll_count[22:0] == 23'h7F_FFFF);
+    var flash_state              : updater_pkg::FlashState    ;
+    var flash_active_command     : logic                  <32>;
+    var flash_data_index         : logic                  <8> ;
+    var flash_spi_start          : logic                      ;
+    var flash_spi_tx             : logic                  <8> ;
+    var flash_spi_done           : logic                      ;
+    var flash_spi_rx             : logic                  <8> ;
+    var flash_spi_sclk           : logic                      ;
+    var flash_spi_mosi           : logic                      ;
+    var flash_buffer_tx_word     : logic                  <32>;
+    var flash_buffer_tx_byte     : logic                  <8> ;
+    var flash_poll_count         : logic                  <24>;
+    let flash_poll_count_low_next: logic                  <23> = flash_poll_count[22:0] + 23'd1;
+    let flash_poll_count_msb_next: logic                       = flash_poll_count[23]
+        ^ (flash_poll_count[22:0] == 23'h7F_FFFF);
 
     assign flash_buffer_tx_word = flash_buffer[flash_data_index[7:2]];
 
@@ -213,11 +243,11 @@ pub module UpdaterRegs #(
         flash_spi_start = 0;
         flash_spi_tx    = 8'hFF;
         case flash_state {
-            FLASH_STATE_WE_START: {
+            updater_pkg::FlashState::WE_START: {
                 flash_spi_start = 1;
                 flash_spi_tx    = 8'h06;
             }
-            FLASH_STATE_CMD_START: {
+            updater_pkg::FlashState::CMD_START: {
                 flash_spi_start = 1;
                 case flash_active_command {
                     FLASH_COMMAND_ERASE_64K    : flash_spi_tx = 8'hD8;
@@ -227,29 +257,29 @@ pub module UpdaterRegs #(
                     default                    : flash_spi_tx = 8'hFF;
                 }
             }
-            FLASH_STATE_ADDR2_START: {
+            updater_pkg::FlashState::ADDR2_START: {
                 flash_spi_start = 1;
                 flash_spi_tx    = reg_flash_address[23:16];
             }
-            FLASH_STATE_ADDR1_START: {
+            updater_pkg::FlashState::ADDR1_START: {
                 flash_spi_start = 1;
                 flash_spi_tx    = reg_flash_address[15:8];
             }
-            FLASH_STATE_ADDR0_START: {
+            updater_pkg::FlashState::ADDR0_START: {
                 flash_spi_start = 1;
                 flash_spi_tx    = reg_flash_address[7:0];
             }
-            FLASH_STATE_DATA_START: {
+            updater_pkg::FlashState::DATA_START: {
                 flash_spi_start = 1;
                 if flash_active_command == FLASH_COMMAND_PROGRAM_PAGE {
                     flash_spi_tx = flash_buffer_tx_byte;
                 }
             }
-            FLASH_STATE_STATUS_CMD_START: {
+            updater_pkg::FlashState::STATUS_CMD_START: {
                 flash_spi_start = 1;
                 flash_spi_tx    = 8'h05;
             }
-            FLASH_STATE_STATUS_DATA_START: {
+            updater_pkg::FlashState::STATUS_DATA_START: {
                 flash_spi_start = 1;
             }
             default: {}
@@ -270,14 +300,15 @@ pub module UpdaterRegs #(
         o_mosi             : flash_spi_mosi ,
     );
 
-    assign o_flash_cs_n = flash_state == FLASH_STATE_IDLE || flash_state == FLASH_STATE_ERROR || flash_state
-        == FLASH_STATE_WE_GAP || flash_state == FLASH_STATE_POLL_GAP || flash_state == FLASH_STATE_DONE;
+    assign o_flash_cs_n = flash_state == updater_pkg::FlashState::IDLE || flash_state == updater_pkg::FlashState::ERROR
+        || flash_state == updater_pkg::FlashState::WE_GAP || flash_state == updater_pkg::FlashState::POLL_GAP
+        || flash_state == updater_pkg::FlashState::DONE;
     assign o_flash_sclk = if o_flash_cs_n ? 1'b0 : flash_spi_sclk;
     assign o_flash_mosi = if o_flash_cs_n ? 1'b1 : flash_spi_mosi;
 
     always_ff (i_clk, i_rst) {
         if_reset {
-            reg_state         = 0;
+            reg_state         = updater_pkg::UpdaterState::IDLE;
             reg_sd_control    = 0;
             reg_sd_clk_div    = 32'd64;
             reg_sd_tx         = 32'h0000_00FF;
@@ -289,7 +320,7 @@ pub module UpdaterRegs #(
         } else {
             if i_mem_valid && is_write {
                 case i_mem_addr {
-                    ADDR_STATE     : reg_state = i_mem_wdata[3:0];
+                    ADDR_STATE     : reg_state = i_mem_wdata[3:0] as updater_pkg::UpdaterState;
                     ADDR_SD_CONTROL: {
                         reg_sd_control = if (i_mem_wdata & SD_CONTROL_CS_ASSERT) != 0 ? SD_CONTROL_CS_ASSERT : 0;
                     }
@@ -336,7 +367,8 @@ pub module UpdaterRegs #(
                     }
                 }
             }
-            if flash_state == FLASH_STATE_DATA_WAIT && flash_spi_done && flash_active_command == FLASH_COMMAND_READ {
+            if flash_state == updater_pkg::FlashState::DATA_WAIT && flash_spi_done && flash_active_command
+                == FLASH_COMMAND_READ {
                 case flash_data_index[1:0] {
                     2'd0   : flash_buffer[flash_data_index[7:2]][7:0]   = flash_spi_rx;
                     2'd1   : flash_buffer[flash_data_index[7:2]][15:8]  = flash_spi_rx;
@@ -349,34 +381,34 @@ pub module UpdaterRegs #(
 
     always_ff (i_clk, i_rst) {
         if_reset {
-            sd_state      = SD_STATE_IDLE;
+            sd_state      = updater_pkg::SdState::IDLE;
             reg_sd_status = 0;
             reg_sd_rx     = 0;
         } else {
             case sd_state {
-                SD_STATE_IDLE: {
+                updater_pkg::SdState::IDLE: {
                     if i_mem_valid && is_write && i_mem_addr == ADDR_SD_CONTROL && (i_mem_wdata & SD_CONTROL_START)
                         != 0 {
                         if reg_sd_status[0] {
                             reg_sd_status = SD_STATUS_ERROR;
                         } else {
                             reg_sd_status = SD_STATUS_BUSY;
-                            sd_state      = SD_STATE_START;
+                            sd_state      = updater_pkg::SdState::START;
                         }
                     }
                 }
-                SD_STATE_START: {
-                    sd_state = SD_STATE_WAIT;
+                updater_pkg::SdState::START: {
+                    sd_state = updater_pkg::SdState::WAIT;
                 }
-                SD_STATE_WAIT: {
+                updater_pkg::SdState::WAIT: {
                     if sd_spi_done {
                         reg_sd_rx     = {24'd0, sd_spi_rx};
                         reg_sd_status = 0;
-                        sd_state      = SD_STATE_IDLE;
+                        sd_state      = updater_pkg::SdState::IDLE;
                     }
                 }
                 default: {
-                    sd_state = SD_STATE_IDLE;
+                    sd_state = updater_pkg::SdState::IDLE;
                 }
             }
         }
@@ -384,7 +416,7 @@ pub module UpdaterRegs #(
 
     always_ff (i_clk, i_rst) {
         if_reset {
-            flash_state          = FLASH_STATE_IDLE;
+            flash_state          = updater_pkg::FlashState::IDLE;
             flash_active_command = 0;
             flash_data_index     = 0;
             flash_poll_count     = 0;
@@ -392,7 +424,7 @@ pub module UpdaterRegs #(
             reg_flash_jedec      = 0;
         } else {
             case flash_state {
-                FLASH_STATE_IDLE: {
+                updater_pkg::FlashState::IDLE: {
                     if i_mem_valid && is_write && i_mem_addr == ADDR_FLASH_COMMAND {
                         reg_flash_status     = FLASH_STATUS_BUSY;
                         flash_active_command = i_mem_wdata;
@@ -400,90 +432,90 @@ pub module UpdaterRegs #(
                         flash_poll_count     = 0;
                         if i_mem_wdata == FLASH_COMMAND_READ_JEDEC_ID {
                             reg_flash_jedec = 0;
-                            flash_state     = FLASH_STATE_CMD_START;
+                            flash_state     = updater_pkg::FlashState::CMD_START;
                         } else if i_mem_wdata == FLASH_COMMAND_ERASE_64K {
                             if reg_flash_address[15:0] == 16'h0000 && reg_flash_address >= FLASH_APP_BASE
                                 && reg_flash_address <: FLASH_APP_END {
-                                flash_state = FLASH_STATE_WE_START;
+                                flash_state = updater_pkg::FlashState::WE_START;
                             } else {
-                                flash_state = FLASH_STATE_ERROR;
+                                flash_state = updater_pkg::FlashState::ERROR;
                             }
                         } else if i_mem_wdata == FLASH_COMMAND_PROGRAM_PAGE {
                             if flash_length_ok && flash_range_ok && flash_page_ok {
-                                flash_state = FLASH_STATE_WE_START;
+                                flash_state = updater_pkg::FlashState::WE_START;
                             } else {
-                                flash_state = FLASH_STATE_ERROR;
+                                flash_state = updater_pkg::FlashState::ERROR;
                             }
                         } else if i_mem_wdata == FLASH_COMMAND_READ {
                             if flash_length_ok && flash_range_ok {
-                                flash_state = FLASH_STATE_CMD_START;
+                                flash_state = updater_pkg::FlashState::CMD_START;
                             } else {
-                                flash_state = FLASH_STATE_ERROR;
+                                flash_state = updater_pkg::FlashState::ERROR;
                             }
                         } else {
-                            flash_state = FLASH_STATE_ERROR;
+                            flash_state = updater_pkg::FlashState::ERROR;
                         }
                     }
                 }
-                FLASH_STATE_ERROR: {
+                updater_pkg::FlashState::ERROR: {
                     reg_flash_status = FLASH_STATUS_ERROR;
-                    flash_state      = FLASH_STATE_IDLE;
+                    flash_state      = updater_pkg::FlashState::IDLE;
                 }
-                FLASH_STATE_WE_START: {
-                    flash_state = FLASH_STATE_WE_WAIT;
+                updater_pkg::FlashState::WE_START: {
+                    flash_state = updater_pkg::FlashState::WE_WAIT;
                 }
-                FLASH_STATE_WE_WAIT: {
+                updater_pkg::FlashState::WE_WAIT: {
                     if flash_spi_done {
-                        flash_state = FLASH_STATE_WE_GAP;
+                        flash_state = updater_pkg::FlashState::WE_GAP;
                     }
                 }
-                FLASH_STATE_WE_GAP: {
-                    flash_state = FLASH_STATE_CMD_START;
+                updater_pkg::FlashState::WE_GAP: {
+                    flash_state = updater_pkg::FlashState::CMD_START;
                 }
-                FLASH_STATE_CMD_START: {
-                    flash_state = FLASH_STATE_CMD_WAIT;
+                updater_pkg::FlashState::CMD_START: {
+                    flash_state = updater_pkg::FlashState::CMD_WAIT;
                 }
-                FLASH_STATE_CMD_WAIT: {
+                updater_pkg::FlashState::CMD_WAIT: {
                     if flash_spi_done {
                         if flash_active_command == FLASH_COMMAND_READ_JEDEC_ID {
-                            flash_state = FLASH_STATE_DATA_START;
+                            flash_state = updater_pkg::FlashState::DATA_START;
                         } else {
-                            flash_state = FLASH_STATE_ADDR2_START;
+                            flash_state = updater_pkg::FlashState::ADDR2_START;
                         }
                     }
                 }
-                FLASH_STATE_ADDR2_START: {
-                    flash_state = FLASH_STATE_ADDR2_WAIT;
+                updater_pkg::FlashState::ADDR2_START: {
+                    flash_state = updater_pkg::FlashState::ADDR2_WAIT;
                 }
-                FLASH_STATE_ADDR2_WAIT: {
+                updater_pkg::FlashState::ADDR2_WAIT: {
                     if flash_spi_done {
-                        flash_state = FLASH_STATE_ADDR1_START;
+                        flash_state = updater_pkg::FlashState::ADDR1_START;
                     }
                 }
-                FLASH_STATE_ADDR1_START: {
-                    flash_state = FLASH_STATE_ADDR1_WAIT;
+                updater_pkg::FlashState::ADDR1_START: {
+                    flash_state = updater_pkg::FlashState::ADDR1_WAIT;
                 }
-                FLASH_STATE_ADDR1_WAIT: {
+                updater_pkg::FlashState::ADDR1_WAIT: {
                     if flash_spi_done {
-                        flash_state = FLASH_STATE_ADDR0_START;
+                        flash_state = updater_pkg::FlashState::ADDR0_START;
                     }
                 }
-                FLASH_STATE_ADDR0_START: {
-                    flash_state = FLASH_STATE_ADDR0_WAIT;
+                updater_pkg::FlashState::ADDR0_START: {
+                    flash_state = updater_pkg::FlashState::ADDR0_WAIT;
                 }
-                FLASH_STATE_ADDR0_WAIT: {
+                updater_pkg::FlashState::ADDR0_WAIT: {
                     if flash_spi_done {
                         if flash_active_command == FLASH_COMMAND_ERASE_64K {
-                            flash_state = FLASH_STATE_POLL_GAP;
+                            flash_state = updater_pkg::FlashState::POLL_GAP;
                         } else {
-                            flash_state = FLASH_STATE_DATA_START;
+                            flash_state = updater_pkg::FlashState::DATA_START;
                         }
                     }
                 }
-                FLASH_STATE_DATA_START: {
-                    flash_state = FLASH_STATE_DATA_WAIT;
+                updater_pkg::FlashState::DATA_START: {
+                    flash_state = updater_pkg::FlashState::DATA_WAIT;
                 }
-                FLASH_STATE_DATA_WAIT: {
+                updater_pkg::FlashState::DATA_WAIT: {
                     if flash_spi_done {
                         if flash_active_command == FLASH_COMMAND_READ_JEDEC_ID {
                             case flash_data_index {
@@ -492,57 +524,57 @@ pub module UpdaterRegs #(
                                 default: reg_flash_jedec[23:16] = flash_spi_rx;
                             }
                             if flash_data_index == 8'd2 {
-                                flash_state = FLASH_STATE_DONE;
+                                flash_state = updater_pkg::FlashState::DONE;
                             } else {
                                 flash_data_index += 1;
-                                flash_state      =  FLASH_STATE_DATA_START;
+                                flash_state      =  updater_pkg::FlashState::DATA_START;
                             }
                         } else {
                             if ({1'b0, flash_data_index} + 9'd1 == flash_length_9) {
                                 if flash_active_command == FLASH_COMMAND_PROGRAM_PAGE {
-                                    flash_state = FLASH_STATE_POLL_GAP;
+                                    flash_state = updater_pkg::FlashState::POLL_GAP;
                                 } else {
-                                    flash_state = FLASH_STATE_DONE;
+                                    flash_state = updater_pkg::FlashState::DONE;
                                 }
                             } else {
                                 flash_data_index += 1;
-                                flash_state      =  FLASH_STATE_DATA_START;
+                                flash_state      =  updater_pkg::FlashState::DATA_START;
                             }
                         }
                     }
                 }
-                FLASH_STATE_POLL_GAP: {
-                    flash_state = FLASH_STATE_STATUS_CMD_START;
+                updater_pkg::FlashState::POLL_GAP: {
+                    flash_state = updater_pkg::FlashState::STATUS_CMD_START;
                 }
-                FLASH_STATE_STATUS_CMD_START: {
-                    flash_state = FLASH_STATE_STATUS_CMD_WAIT;
+                updater_pkg::FlashState::STATUS_CMD_START: {
+                    flash_state = updater_pkg::FlashState::STATUS_CMD_WAIT;
                 }
-                FLASH_STATE_STATUS_CMD_WAIT: {
+                updater_pkg::FlashState::STATUS_CMD_WAIT: {
                     if flash_spi_done {
-                        flash_state = FLASH_STATE_STATUS_DATA_START;
+                        flash_state = updater_pkg::FlashState::STATUS_DATA_START;
                     }
                 }
-                FLASH_STATE_STATUS_DATA_START: {
-                    flash_state = FLASH_STATE_STATUS_DATA_WAIT;
+                updater_pkg::FlashState::STATUS_DATA_START: {
+                    flash_state = updater_pkg::FlashState::STATUS_DATA_WAIT;
                 }
-                FLASH_STATE_STATUS_DATA_WAIT: {
+                updater_pkg::FlashState::STATUS_DATA_WAIT: {
                     if flash_spi_done {
                         if flash_spi_rx[0] == 0 {
-                            flash_state = FLASH_STATE_DONE;
+                            flash_state = updater_pkg::FlashState::DONE;
                         } else if flash_poll_count == 24'hFF_FFFF {
-                            flash_state = FLASH_STATE_ERROR;
+                            flash_state = updater_pkg::FlashState::ERROR;
                         } else {
                             flash_poll_count = {flash_poll_count_msb_next, flash_poll_count_low_next};
-                            flash_state      = FLASH_STATE_POLL_GAP;
+                            flash_state      = updater_pkg::FlashState::POLL_GAP;
                         }
                     }
                 }
-                FLASH_STATE_DONE: {
+                updater_pkg::FlashState::DONE: {
                     reg_flash_status = 0;
-                    flash_state      = FLASH_STATE_IDLE;
+                    flash_state      = updater_pkg::FlashState::IDLE;
                 }
                 default: {
-                    flash_state = FLASH_STATE_IDLE;
+                    flash_state = updater_pkg::FlashState::IDLE;
                 }
             }
         }

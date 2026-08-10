@@ -164,4 +164,4 @@ just fmt      # cargo fmt + rtl/ の veryl fmt
 
 ## ライセンス
 
-未定
+MIT OR Apache-2.0 (LICENSE-MIT / LICENSE-APACHE 参照)
