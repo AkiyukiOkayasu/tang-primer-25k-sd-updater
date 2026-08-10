@@ -29,8 +29,8 @@ pub module UpdaterCore #(
     o_flash_mosi: output logic, /// Flash MOSI
     i_flash_miso: input  logic, /// Flash MISO
 
-    o_reconfig_trig_n: output logic   , /// MultiBoot トリガ (外部で RECONFIG_N へ)
-    o_state          : output logic<4>, /// firmware 状態表示コード (0x0-0xF, trap は 0xF)
+    o_reconfig_trig_n: output logic                    , /// MultiBoot トリガ (外部で RECONFIG_N へ)
+    o_state          : output updater_pkg::UpdaterState, /// firmware 状態 (trap は ERROR)。ピンへ出す場合は top 側で logic に変換
 ) {
     // =========================================
     // Global Reset Synchronization and Delay

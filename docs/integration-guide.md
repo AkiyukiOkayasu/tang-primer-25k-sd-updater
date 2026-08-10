@@ -461,6 +461,7 @@ module UpdaterTop (
     state        : output logic<4>,  /// firmware 状態表示コード (0x0-0xF)
     reconfig_trig_n: output logic,   /// MultiBoot トリガ (外部で RECONFIG_N へ)
 ) {
+    var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
     inst core: tang_primer_25k_sd_updater::UpdaterCore #(
         TCM_ADDR_WIDTH: 15,           // 32KB (firmware の memory.x と合わせる)
         HEX_FILE      : "updater.hex",
@@ -474,8 +475,11 @@ module UpdaterTop (
         o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
         o_flash_mosi: flash_mosi, i_flash_miso: flash_miso,
         o_reconfig_trig_n: reconfig_trig_n,
-        o_state: state,
+        o_state: state_enum,
     );
+
+    // enum → logic は assign で暗黙変換 (ピンへ出すときに変換する)
+    assign state = state_enum;
 }
 ```
 
@@ -488,7 +492,8 @@ module UpdaterTop (
 | `BASE` | UpdaterRegs の peripheral 窓内ベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
 | `FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
 
-`UpdaterCore` が公開する `o_state` (logic<4>) は firmware の進行状態コード (第 9.1 節)。
+`UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (第 9.1 節)。
+ピンへ出力する場合は top 側で `assign` により logic へ変換する (CST のビット選択用)。
 LED 表示にする場合は、利用プロジェクト側で state を加工する (例: 更新中は点滅、エラーは常灯)。
 
 ---

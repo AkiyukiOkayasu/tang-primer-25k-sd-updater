@@ -70,6 +70,7 @@ tang_primer_25k_sd_updater = { version = "0.1.0" }
 SD / Flash / reconfig ピンを配線するだけ:
 
 ```veryl
+var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
 inst core: tang_primer_25k_sd_updater::UpdaterCore #(
     TCM_ADDR_WIDTH: 15,
     HEX_FILE      : "updater.hex",
@@ -83,8 +84,11 @@ inst core: tang_primer_25k_sd_updater::UpdaterCore #(
     o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
     o_flash_mosi: flash_mosi, i_flash_miso: flash_miso,
     o_reconfig_trig_n: reconfig_trig_n,
-    o_state: state,
+    o_state: state_enum,
 );
+
+// enum → logic は assign で暗黙変換 (ピンへ出すときに変換する)
+assign state = state_enum;
 ```
 
 PicoRV32 (`rtl/vendor/picorv32/picorv32.v`, ISC license) はリポジトリに同梱済み。
