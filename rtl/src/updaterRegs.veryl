@@ -5,18 +5,31 @@
 pub package updater_pkg {
     /// firmware 状態表示コード (firmware の `UpdateStatus.state_code()` と対応)。
     enum UpdaterState: logic<4> {
+        /// 初期状態 / リセット直後
         IDLE = 0,
+        /// SD 初期化開始
         SD_INIT = 1,
+        /// SD 電源安定待ち (100ms)
         SD_POWER_WAIT = 2,
+        /// SD ダミークロック送出
         SD_DUMMY_CLOCK = 3,
+        /// SD CMD0 (SPI mode 移行)
         SD_CMD0 = 4,
+        /// FAT マウント / 更新ファイル探索
         FAT_FILE = 8,
+        /// 更新ファイル header 読み出し中
         HEADER_READ = 9,
+        /// header の target / layout 検証完了
         HEADER_VALID = 10,
+        /// SD payload の CRC32 検証中 (書き込みパスのみ)
         PAYLOAD_VERIFY = 11,
+        /// Flash JEDEC ID 確認 (書き込みパスのみ)
         FLASH_JEDEC = 12,
+        /// app slot の現内容がパッケージと一致し、書き込みをスキップ
         APP_SLOT_SKIP = 13,
+        /// Flash 書き込み / readback verify / 成功 (reconfig で app へ移行)
         FLASH_WRITE = 14,
+        /// エラー / trap
         ERROR = 15,
     }
 

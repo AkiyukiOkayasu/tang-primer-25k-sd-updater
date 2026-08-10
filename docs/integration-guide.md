@@ -556,7 +556,6 @@ IO_LOC "state[3]" F7;
 ```
 
 `UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (9.1 章)。
-ピンへ出力する場合は top 側で `assign` により logic へ変換する (CST のビット選択用)。
 LED 表示にする場合は、利用プロジェクト側で state を加工する (例: 更新中は点滅、エラーは常灯)。
 
 ---

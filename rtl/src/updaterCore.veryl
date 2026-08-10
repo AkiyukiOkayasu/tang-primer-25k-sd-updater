@@ -1,21 +1,16 @@
-/// PicoRV32 + rst_bridge + PicoMemBus + PicoTcm + UpdaterRegs を内蔵した updater サブシステム。
+/// SD カードの更新ファイルを検証して Configuration Flash の app slot を書き換え、
+/// reconfig するアップデーター一式 (PicoRV32 ソフトコア + TCM + レジスタブロックを内蔵)。
 ///
-/// 利用プロジェクトの top は本モジュールとボード固有の SD / Flash / reconfig ピンを
-/// 配線するだけでよい。
+/// `top.veryl` は本モジュールとボード固有の SD / Flash / reconfig ピンを配線するだけでよい。
+///
+/// - `FLASH_APP_BASE` / `FLASH_APP_END`: app slot の範囲。`update_spec.toml` の
+///   `flash.app_base` / `app_base + app_size` と一致させる
+/// - `o_state`: firmware の進行状態 (`UpdaterState`)
 ///
 /// # 同梱物
 ///
 /// `picorv32.v` は `rtl/vendor/picorv32/` に同梱 (ISC license)。利用プロジェクトの
 /// ファイルリストに追加すること (veryl build の生成物には含まれない)。
-///
-/// # 固定値
-///
-/// - TCM: 32KB (ADDR_WIDTH 15)。現状の updater firmware は約 20.3KB のため 32KB 必要
-/// - `rst_bridge.DELAY_CYCLES` = 1024 (20.48us @ 50MHz)。Gowin BSRAM が reset 後に
-///   使えるようになるまでの待ち。文書化されていない仕様のため余裕を持たせた値で、
-///   動作クロックが変わった場合の振る舞いは未定義とする
-/// - `UpdaterRegs.BASE` = 0x03_0000 (firmware の `UPDATER_PERIPH_BASE` の下位 22bit と一致)
-/// - TCM の hex ファイル名 = `"updater.hex"`
 pub module UpdaterCore #(
     param FLASH_APP_BASE: u32 = 32'h0010_0000, /// app slot 先頭 (update_spec.toml の flash.app_base)
     param FLASH_APP_END : u32 = 32'h0020_0000, /// app slot 末尾 (app_base + app_size)
@@ -35,13 +30,14 @@ pub module UpdaterCore #(
     i_flash_miso: input  logic, /// Flash MISO
 
     o_reconfig_trig_n: output logic                    , /// MultiBoot トリガ (外部で RECONFIG_N へ)
-    o_state          : output updater_pkg::UpdaterState, /// firmware 状態 (trap は ERROR)。ピンへ出す場合は top 側で logic に変換
+    o_state          : output updater_pkg::UpdaterState, /// firmware 状態 (trap は ERROR)
 ) {
     // =========================================
     // Global Reset Synchronization and Delay
     // =========================================
     var rst_delayed: reset_sync_high;
     inst reset_bridge: rst_bridge #(
+        // Gowin BSRAM の reset 後の利用可能待ち (20.48us @ 50MHz)
         DELAY_CYCLES: 1024,
     ) (
         clk     : i_clk      ,
@@ -172,8 +168,10 @@ pub module UpdaterCore #(
     // TCM (firmware 常駐メモリ)
     // =========================================
     inst tcm: PicoTcm #(
-        ADDR_WIDTH: 15           ,
-        HEX_FILE  : "updater.hex",
+        // 32KB (firmware の memory.x の RAM+STACK 合計と一致)
+        ADDR_WIDTH: 15,
+        // firmware の hex。プロジェクトの src/ に配置する
+        HEX_FILE: "updater.hex",
     ) (
         i_clk      : i_clk        ,
         i_mem_valid: tcm_mem_valid,
@@ -188,6 +186,7 @@ pub module UpdaterCore #(
     // =========================================
     var state_enum: updater_pkg::UpdaterState;
     inst regs: UpdaterRegs #(
+        // firmware の UPDATER_PERIPH_BASE の下位 22bit と一致
         BASE          : 32'h0003_0000 ,
         FLASH_APP_BASE: FLASH_APP_BASE,
         FLASH_APP_END : FLASH_APP_END ,
