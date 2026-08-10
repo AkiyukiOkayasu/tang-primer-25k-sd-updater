@@ -43,7 +43,7 @@ updater firmware は TCM 32KB 以内、SD カードは FAT32。
 ### 構成要素
 
 | 要素 | このリポジトリの場所 | プロジェクト側で作るもの |
-|---|---|---|
+| --- | --- | --- |
 | firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` (firmware と MMIO を繋ぐトレイト、実装例は第 5 章) + `main.rs` + `update_spec.toml` |
 | ビルド補助 | `crates/tang-primer-25k-sd-updater-build` | `build.rs` から呼ぶ |
 | ホストツール | `crates/tang-primer-25k-sd-updater-tools` | なし (CLI として使用) |
@@ -86,7 +86,7 @@ tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec 
 ```
 
 | offset | サイズ | フィールド | 説明 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0x00 | 8 | magic | ファイル形式識別子 (プロジェクト固有) |
 | 0x08 | 4 | format_version | パッケージ形式バージョン (現行 1) |
 | 0x0C | 4 | target_hw_id | 製品識別子 (プロジェクト固有) |
@@ -114,11 +114,6 @@ crates は crates.io、RTL ライブラリは Veryl registry から取得する 
 `Cargo.toml`:
 
 ```toml
-[package]
-name = "rv32updater"
-version = "0.1.0"
-edition = "2024"
-
 [dependencies]
 tang_primer_25k_sd_updater = { version = "0.1" }
 
@@ -130,7 +125,6 @@ panic-halt = "1.0.0"
 riscv-rt = { version = "0.17.1", features = ["memory", "single-hart", "no-mhartid", "no-xie-xip", "no-xtvec"] }
 ```
 
-- `edition = "2024"` が必要 (`#[unsafe(export_name = ...)]` 構文のため)
 - `update_spec.toml` は 4.3 で定義する (build.rs がビルド時に参照)
 
 `.cargo/config.toml` (riscv ターゲット固定):
@@ -258,7 +252,7 @@ layout_id = 0x4c415931
 各キーの役割:
 
 | キー | 役割 |
-|---|---|
+| --- | --- |
 | `file_name` | SD から読む固定ファイル名 (FAT32 8.3: 8 文字 + 拡張子 3 文字) |
 | `magic_hex` | header 先頭 8 byte の 16 進数 (16 文字) |
 | `header_size` / `format_version` | header サイズ / パッケージ形式バージョン (第 3 節) |
@@ -570,7 +564,7 @@ module UpdaterTop (
 ### パラメータの意味
 
 | パラメータ | 値の決め方 |
-|---|---|
+| --- | --- |
 | `PicoTcm.ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
 | `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する (veryl build が生成するディレクトリ) |
 | `UpdaterRegs.BASE` | peripheral 窓内のベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
@@ -655,7 +649,7 @@ set_option -bg_programming userlogic
 `state[3:0]` (4bit) が firmware の進行状態を示す。trap 時は 0xF。
 
 | 値 | 意味 | 値 | 意味 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0x0 | Idle / reset | 0x9 | HeaderRead |
 | 0x1 | SdInit | 0xA | HeaderValid |
 | 0x2 | SdPowerWait | 0xB | PayloadVerify |
@@ -685,7 +679,7 @@ set_option -bg_programming userlogic
 ### 9.4 よくある問題
 
 | 症状 | 原因 |
-|---|---|
+| --- | --- |
 | updater が起動しない | RECONFIG_N のプルアップ不足 / A1 (reconfig_trig_n ピン) のショート配線 |
 | 起動が遅い (数十秒) | SD カードの応答遅延 (カード交換で改善) |
 | 更新が毎回走る | app slot の内容が SD パッケージと異なる (Gowin のビットストリーム .fs を直接書いた後など) |
