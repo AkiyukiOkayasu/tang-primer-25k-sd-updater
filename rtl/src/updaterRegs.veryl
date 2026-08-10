@@ -106,7 +106,7 @@ pub module UpdaterRegs #(
     i_mem_wstrb: input  logic<4> ,
     o_mem_rdata: output logic<32>,
 
-    o_state: output logic<4>, /// firmware 状態表示コード (0x0-0xF)
+    o_state: output updater_pkg::UpdaterState, /// firmware 状態表示コード
 
     o_sd_cs_n: output logic,
     o_sd_sclk: output logic,

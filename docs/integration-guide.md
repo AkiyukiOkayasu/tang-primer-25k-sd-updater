@@ -533,7 +533,8 @@ module UpdaterTop (
         o_mem_rdata: tcm_mem_rdata,
     );
 
-    var state_out: logic<4>;
+    var state_enum: fpga_sd_updater::updater_pkg::UpdaterState;
+    var state_out : logic<4>;
     inst regs: fpga_sd_updater::UpdaterRegs #(
         BASE          : 32'h03_0000,   // firmware の UPDATER_PERIPH_BASE の下位 22bit
         FLASH_APP_BASE: 32'h0010_0000, // update_spec.conf の app_base と一致させる
@@ -543,7 +544,7 @@ module UpdaterTop (
         i_mem_valid: peri_mem_valid, i_mem_addr: peri_mem_addr,
         i_mem_wdata: peri_mem_wdata, i_mem_wstrb: peri_mem_wstrb,
         o_mem_rdata: peri_mem_rdata,
-        o_state: state_out,
+        o_state: state_enum,
         o_sd_cs_n: sd_cs_n, o_sd_sclk: sd_sclk, o_sd_mosi: sd_mosi,
         i_sd_miso: sd_miso, i_sd_cd: sd_cd,
         o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
@@ -551,7 +552,8 @@ module UpdaterTop (
         o_reconfig_trig_n: reconfig_trig_n,
     );
 
-    assign state = if trap ? 4'hF : state_out;
+    assign state_out = state_enum;              // enum → logic (暗黙変換)
+    assign state     = if trap ? 4'hF : state_out;
 }
 ```
 

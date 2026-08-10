@@ -12,30 +12,52 @@ const RECONFIG_PULSE_MS: u32 = 1;
 
 /// 更新フローの進行状態。`state_code()` で 4bit の状態表示コードに変換され、
 /// RTL の `o_state` 出力 (top の `state` ポート) に表示される。
+/// コード値は RTL の `updater_pkg::UpdaterState` と対応する (変更時は両者を同期)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateStatus {
+    /// 初期状態 / 更新なし (正常終了のフォールバック)。コード 0x0。
     Idle,
+    /// SD 初期化開始。コード 0x1。
     SdInit,
+    /// SD 電源安定待ち (100ms)。コード 0x2。
     SdPowerWait,
+    /// SD ダミークロック送出。コード 0x3。
     SdDummyClock,
+    /// SD CMD0 (SPI mode 移行)。コード 0x4。
     SdCmd0,
+    /// FAT ボリュームマウント完了。コード 0x8。
     FatMounted,
+    /// 更新ファイル探索中。コード 0x8。
     FileSearch,
+    /// header 読み出し中。コード 0x9。
     HeaderRead,
+    /// header の target / layout 検証完了。コード 0xA。
     HeaderValid,
+    /// SD payload の CRC32 検証中 (書き込みパスのみ)。コード 0xB。
     PayloadVerify,
+    /// Flash JEDEC ID 確認 (書き込みパスのみ)。コード 0xC。
     FlashJedec,
+    /// Flash 書き込み中 (ページ単位)。コード 0xE。
     FlashProgram,
+    /// Flash readback verify 中。コード 0xE。
     FlashVerify,
+    /// 更新成功 (FlashVerifyOk)。reconfig で app へ移行する。コード 0xE。
     FlashVerifyOk,
-    /// app slot の現内容がパッケージと一致し、書き込みをスキップした。
+    /// app slot の現内容がパッケージと一致し、書き込みをスキップした。コード 0xD。
     AppSlotSkip,
+    /// SD I/O 失敗 (カード無し・応答なし)。この状態では app へ移行する。コード 0xF。
     FatIoError,
+    /// 更新ファイルが見つからない。app へ移行する。コード 0xF。
     FileNotFound,
+    /// FAT 形式エラー (カード読めず)。app へ移行する。コード 0xF。
     FatFormatError,
+    /// header 検証エラー (magic / format 等)。updater に留まる。コード 0xF。
     HeaderError,
+    /// target (hw / fpga) 不一致。updater に留まる。コード 0xF。
     TargetError,
+    /// payload 検証エラー (CRC32 不一致・slot 範囲外)。updater に留まる。コード 0xF。
     PayloadError,
+    /// Flash 操作エラー。updater に留まる。コード 0xF。
     FlashError,
 }
 
