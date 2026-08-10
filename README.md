@@ -38,6 +38,13 @@ tang-primer-25k-sd-updater-build = { version = "0.1.0" }
 
 ### RTL (Veryl)
 
+`Veryl.toml`:
+
+```toml
+[dependencies]
+tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.1.0" }
+```
+
 `UpdaterCore` (PicoRV32 + TCM + レジスタを内蔵) とボード固有のピンを配線するだけ:
 
 ```veryl

@@ -238,7 +238,7 @@ reset_type = "sync_high"
 target = { type = "directory", path = "target/" }
 
 [dependencies]
-tang_primer_25k_sd_updater = { version = "0.1.0" }
+tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.1.0" }
 ```
 
 - `reset_type = "sync_high"` は生成物の既定。top の `rst` ポートは
@@ -562,9 +562,7 @@ LED 表示にする場合は、利用プロジェクト側で state を加工す
 
 ## 7. PicoRV32 の入手とパラメータ
 
-- ソース: `rtl/vendor/picorv32/picorv32.v` に同梱 (ISC license、リビジョン固定)。
-  別途入手の必要はない (Veryl registry のパッケージには含まれないため、レジストリから
-  取得する場合はリポジトリからこのファイルを取得する)
+- ソース: `rtl/vendor/picorv32/picorv32.v` に同梱 (ISC license、リビジョン固定)
 - `picorv32.v` は Gowin プロジェクトのファイルリストに**別途追加**する
   (`veryl build` の生成物には含まれない。リポジトリ内の `rtl/vendor/picorv32/picorv32.v` を参照する)
 - パラメータは `UpdaterCore` に内蔵されており固定 (CSR 不使用、`ENABLE_MUL/DIV` は firmware の
