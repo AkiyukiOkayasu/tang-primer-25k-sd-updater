@@ -116,8 +116,16 @@ rtl/
 ## 開発
 
 ```bash
-just check    # fmt / clippy / test / RTL ビルド・検証
-just rtl-check # rtl/ のみの検証
+# Rust (crates/) — fmt / lint / test
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+
+# RTL (rtl/) — Veryl の fmt / build
+cd rtl
+veryl fmt --check
+veryl build
+# RTL の Verilator 機能テストは rtl/tests/README.md を参照
 ```
 
 ## ライセンス
