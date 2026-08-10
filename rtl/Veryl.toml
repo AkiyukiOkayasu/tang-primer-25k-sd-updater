@@ -9,3 +9,7 @@ sources = ["src"]
 clock_type = "posedge"
 reset_type = "sync_high"
 target = { type = "directory", path = "target/" }
+
+[publish]
+bump_commit = true
+publish_commit = true

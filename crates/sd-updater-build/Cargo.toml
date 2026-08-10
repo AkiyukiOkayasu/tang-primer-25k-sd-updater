@@ -1,8 +1,12 @@
 [package]
 name = "sd-updater-build"
-license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition = "2024"
+description = "Build helper for sd-updater: generate Rust constants from update_spec.conf"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AkiyukiOkayasu/gowin-sd-updater"
+keywords = ["fpga", "sd", "firmware", "updater", "build"]
+categories = ["embedded", "development-tools::build-utils", "hardware-support"]
 
 [lib]
 path = "src/lib.rs"
