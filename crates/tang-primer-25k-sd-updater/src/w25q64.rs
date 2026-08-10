@@ -9,8 +9,9 @@ pub const ADDRESS_BYTES: usize = 3;
 pub const WINBOND_JEDEC_ID: [u8; 3] = [0xEF, 0x40, 0x17];
 
 /// 64Mbit SPI NOR として扱える JEDEC ID だけを受け入れる。
-/// Tang Primer 25K Core の実装では製造元が Winbond 以外の場合があり得るため、
-/// manufacturer/type は固定せず、容量 byte と明らかな未接続値だけを見る。
+/// manufacturer/type は固定せず、容量 byte (0x17 = 64Mbit) と
+/// 明らかな未接続値 (all-zero / all-one) だけを見る。
+/// Winbond 以外の 64Mbit SPI NOR でも同じコマンドセットで扱える。
 pub const fn is_supported_jedec_id(id: [u8; 3]) -> bool {
     let all_zero = id[0] == 0x00 && id[1] == 0x00 && id[2] == 0x00;
     let all_one = id[0] == 0xFF && id[1] == 0xFF && id[2] == 0xFF;

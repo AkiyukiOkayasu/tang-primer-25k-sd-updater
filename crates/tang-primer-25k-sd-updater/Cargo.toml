@@ -1,11 +1,11 @@
 [package]
-name = "sd-updater"
+name = "tang-primer-25k-sd-updater"
 version = "0.1.0"
 edition = "2024"
-description = "SD card firmware updater core for Gowin FPGA + PicoRV32 (no_std)"
+description = "SD card firmware updater core for FPGAs (no_std)"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/AkiyukiOkayasu/gowin-sd-updater"
-keywords = ["fpga", "sd", "firmware", "updater", "gowin"]
+repository = "https://github.com/AkiyukiOkayasu/tang-primer-25k-sd-updater"
+keywords = ["fpga", "sd", "firmware", "updater"]
 categories = ["embedded", "no-std", "hardware-support"]
 
 [dependencies]

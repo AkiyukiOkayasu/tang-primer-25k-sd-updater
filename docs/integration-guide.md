@@ -1,11 +1,12 @@
 # 統合ガイド (別プロジェクト向け)
 
-このガイドは、このリポジトリ (gowin-sd-updater) を**別の Gowin FPGA プロジェクトに組み込む**
+このガイドは、このリポジトリ (tang-primer-25k-sd-updater) を**Tang Primer 25K を使った別の FPGA プロジェクトに組み込む**
 ための手順です。このリポジトリだけを見て、firmware + RTL + ビルドフローまで実装できることを
 目的とします。
 
-前提: **GW5A 系 (Arora V) FPGA** + **PicoRV32 ソフトコア** + **Veryl**。
-再構成は Gowin MultiBoot (`RECONFIG_N` への Low pulse) を使用します。
+前提: **Tang Primer 25K (GW5A-25A MBGA121N, Arora V)** + **PicoRV32 ソフトコア** + **Veryl**。
+他の GW5A 系ボードへ移植する場合は、Configuration Flash のピンアサインと MultiBoot 設定を確認する。
+再構成は MultiBoot (`RECONFIG_N` への Low pulse、ボードで外部プルアップ済み) を使用します。
 
 ---
 
@@ -13,7 +14,7 @@
 
 ```text
                     ┌─────────────────────────────────────────────┐
-                    │ FPGA (GW5A 系)                               │
+                    │ FPGA (Tang Primer 25K)                       │
   SD カード         │  ┌──────────────┐    ┌──────────────────┐    │
   (FAT32) ──SPI──▶  │  │ updater RTL  │    │ 通常 app RTL     │    │
                     │  │  (top.veryl) │    │  (別プロジェクト) │    │
@@ -26,7 +27,7 @@
                     └─────────┼─────────────────────┼──────────────┘
                               ▼                     ▼
                     ┌─────────────────────────────────────┐
-                    │ オンボード SPI Flash (W25Q64 等)      │
+                    │ オンボード 8MB SPI Flash (W25Q64JV)   │
                     │ 0x000000 updater bitstream           │
                     │ 0x100000 app bitstream (更新対象)     │
                     └─────────────────────────────────────┘
@@ -41,10 +42,10 @@
 
 | 要素 | このリポジトリの場所 | プロジェクト側で作るもの |
 |---|---|---|
-| firmware コア | `crates/sd-updater` (no_std) | `BoardIo` 実装 + `main.rs` + `update_spec.conf` |
-| ビルド補助 | `crates/sd-updater-build` | `build.rs` から呼ぶ |
-| ホストツール | `crates/sd-updater-tools` | なし (CLI として使用) |
-| RTL ライブラリ | `rtl/` (Veryl `fpga_sd_updater`) | `top.veryl` (配線のみ) |
+| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` 実装 + `main.rs` + `update_spec.conf` |
+| ビルド補助 | `crates/tang-primer-25k-sd-updater-build` | `build.rs` から呼ぶ |
+| ホストツール | `crates/tang-primer-25k-sd-updater-tools` | なし (CLI として使用) |
+| RTL ライブラリ | `rtl/` (Veryl `tang_primer_25k_sd_updater`) | `top.veryl` (配線のみ) |
 | Verilator テスト | `rtl/tests/` | なし |
 
 ---
@@ -75,7 +76,7 @@
 
 ## 3. パッケージ形式 (FPGAOSC.UPD)
 
-ホストツール `sd-updater-tools make-update-package` が生成する形式。
+ホストツール `tang-primer-25k-sd-updater-tools make-update-package` が生成する形式。
 header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 
 | offset | サイズ | フィールド | 説明 |
@@ -116,10 +117,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sd_updater = { package = "sd-updater", version = "0.1" }
+tang_primer_25k_sd_updater = { version = "0.1" }
 
 [build-dependencies]
-sd-updater-build = { version = "0.1" }
+tang-primer-25k-sd-updater-build = { version = "0.1" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 panic-halt = "1.0.0"
@@ -165,7 +166,7 @@ REGION_ALIAS("REGION_STACK", STACK);
 ```rust
 fn main() {
     println!("cargo:rerun-if-changed=update_spec.conf");
-    sd_updater_build::generate("update_spec.conf").expect("update_spec.conf を読み込めない");
+    tang_primer_25k_sd_updater_build::generate("update_spec.conf").expect("update_spec.conf を読み込めない");
 }
 ```
 
@@ -181,7 +182,7 @@ mod mmio;
 use panic_halt as _; // panic 時のハンドラ (リンクに必要)
 
 use mmio::UpdaterMmio;
-use sd_updater::Updater;
+use tang_primer_25k_sd_updater::Updater;
 
 include!(concat!(env!("OUT_DIR"), "/update_spec.rs"));
 
@@ -200,8 +201,8 @@ fn main() -> ! {
 }
 ```
 
-- `include!` で生成された `SPEC` を使う (生成コードは `sd_updater::UpdateSpec` を参照するため、
-  依存 crate の名前は `sd_updater` で固定)
+- `include!` で生成された `SPEC` を使う (生成コードは `tang_primer_25k_sd_updater::UpdateSpec` を参照するため、
+  依存 crate の名前は `tang_primer_25k_sd_updater` で固定)
 - PicoRV32 は CSR 命令を使わない前提 (riscv-rt の割り込み初期化を空実装にする)
 
 ### 4.2 Veryl (RTL)
@@ -222,13 +223,13 @@ reset_type = "sync_high"
 target = { type = "directory", path = "target/" }
 
 [dependencies]
-fpga_sd_updater = { version = "0.1.0" }
+tang_primer_25k_sd_updater = { version = "0.1.0" }
 ```
 
 ### 4.3 update_spec.conf
 
 プロジェクト固有の値 (hw_id / flash layout) を定義する唯一のファイル。
-キー集合と構文は sd-updater-build のドキュメントを参照。
+キー集合と構文は tang-primer-25k-sd-updater-build のドキュメントを参照。
 
 ```text
 package.file_name=FPGAOSC.UPD
@@ -270,7 +271,7 @@ flash.layout_id=0x46504f31
 
 ```rust
 use core::ptr::{read_volatile, write_volatile};
-use sd_updater::{BoardIo, IoError};
+use tang_primer_25k_sd_updater::{BoardIo, IoError};
 
 pub const UPDATER_PERIPH_BASE: usize = 0x0043_0000; // PicoMemBus の peripheral 窓 + BASE
 
@@ -395,7 +396,7 @@ impl BoardIo for UpdaterMmio {
     }
 
     fn flash_program_page(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if !sd_updater::w25q64::page_program_len_ok(address, data.len() as u32) {
+        if !tang_primer_25k_sd_updater::w25q64::page_program_len_ok(address, data.len() as u32) {
             return Err(IoError::OutOfRange);
         }
         self.write_buffer(REG_FLASH_BUFFER, data);
@@ -406,7 +407,7 @@ impl BoardIo for UpdaterMmio {
     }
 
     fn flash_read(&mut self, address: u32, out: &mut [u8]) -> Result<(), IoError> {
-        if out.len() > sd_updater::w25q64::PAGE_SIZE as usize {
+        if out.len() > tang_primer_25k_sd_updater::w25q64::PAGE_SIZE as usize {
             return Err(IoError::OutOfRange); // 最大 256 bytes
         }
         self.write(REG_FLASH_ADDRESS, address);
@@ -455,7 +456,7 @@ module UpdaterTop (
     reconfig_trig_n: output logic,      /// MultiBoot トリガ (外部で RECONFIG_N へ)
 ) {
     var rst_delayed: reset_sync_high;
-    inst reset_bridge: fpga_sd_updater::rst_bridge #(
+    inst reset_bridge: tang_primer_25k_sd_updater::rst_bridge #(
         DELAY_CYCLES: 256,
     ) ( clk, rst, rst_sync: rst_delayed );
 
@@ -506,7 +507,7 @@ module UpdaterTop (
     var peri_mem_wdata: logic<32>; var peri_mem_wstrb: logic<4>;
     var peri_mem_rdata: logic<32>;
 
-    inst mem_bus: fpga_sd_updater::PicoMemBus (
+    inst mem_bus: tang_primer_25k_sd_updater::PicoMemBus (
         i_clk: clk, i_rst: rst_delayed,
         i_mem_valid: mem_valid, i_mem_addr: mem_addr,
         i_mem_wdata: mem_wdata, i_mem_wstrb: mem_wstrb,
@@ -519,7 +520,7 @@ module UpdaterTop (
         i_peri_rdata: peri_mem_rdata,
     );
 
-    inst tcm: fpga_sd_updater::PicoTcm #(
+    inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
         ADDR_WIDTH: 15,          // 32KB (firmware の memory.x と合わせる)
         HEX_FILE  : "updater.hex",
     ) (
@@ -529,8 +530,8 @@ module UpdaterTop (
         o_mem_rdata: tcm_mem_rdata,
     );
 
-    var state_enum: fpga_sd_updater::updater_pkg::UpdaterState;
-    inst regs: fpga_sd_updater::UpdaterRegs #(
+    var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
+    inst regs: tang_primer_25k_sd_updater_UpdaterRegs #(
         BASE          : 32'h03_0000,   // firmware の UPDATER_PERIPH_BASE の下位 22bit
         FLASH_APP_BASE: 32'h0010_0000, // update_spec.conf の app_base と一致させる
         FLASH_APP_END : 32'h0020_0000, // app_base + app_size
@@ -549,7 +550,7 @@ module UpdaterTop (
 
     // state ポートは CST がビット選択 (state[0..3]) するため logic<4>。
     // enum → logic の変換は assign で暗黙に行われる。
-    assign state = if trap ? fpga_sd_updater::updater_pkg::UpdaterState::ERROR : state_enum;
+    assign state = if trap ? tang_primer_25k_sd_updater::updater_pkg::UpdaterState::ERROR : state_enum;
 }
 ```
 
@@ -558,7 +559,7 @@ module UpdaterTop (
 | パラメータ | 値の決め方 |
 |---|---|
 | `PicoTcm.ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
-| `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成時の解決先は tool 依存なので、生成される `dependencies/fpga_sd_updater/src/` を含む複数箇所に hex を配置して検証する |
+| `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成時の解決先は tool 依存なので、生成される `dependencies/tang_primer_25k_sd_updater/src/` を含む複数箇所に hex を配置して検証する |
 | `UpdaterRegs.BASE` | peripheral 窓内のベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
 | `UpdaterRegs.FLASH_APP_BASE/END` | app slot の範囲 (update_spec.conf の `flash.app_base` / `+app_size`) |
 
@@ -686,7 +687,7 @@ set_option -bg_programming userlogic
 
 ## 10. 前提条件のまとめ
 
-- GW5A 系 (Arora V) FPGA (MultiBoot + MSPI-as-GPIO)
+- Tang Primer 25K (GW5A-25A) FPGA (MultiBoot + MSPI-as-GPIO)
 - PicoRV32 ソフトコア (CSR 不使用)
 - Veryl: `clock_type=posedge` / `reset_type=sync_high`
 - システムクロック 50 MHz (firmware の delay 換算)

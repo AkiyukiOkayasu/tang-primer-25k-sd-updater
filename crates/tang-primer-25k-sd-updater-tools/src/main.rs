@@ -1,15 +1,15 @@
 //! SD updater のホストツール。
 //!
 //! `update_spec.conf` から package (FPGAOSC.UPD) と factory flash image を生成する。
-//! CRC32 / SHA256 は共有 crate `sd-updater` を再利用し、spec のパース・検証は
-//! `sd-updater-build` に集約されている。
+//! CRC32 / SHA256 は共有 crate `tang-primer-25k-sd-updater` を再利用し、spec のパース・検証は
+//! `tang-primer-25k-sd-updater-build` に集約されている。
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use sd_updater::crc32;
-use sd_updater_build::Spec;
+use tang_primer_25k_sd_updater::crc32;
+use tang_primer_25k_sd_updater_build::Spec;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -39,8 +39,8 @@ fn print_usage() {
         "SD updater ホストツール\n\
          \n\
          Usage:\n\
-           sd-updater-tools make-update-package <payload> <output> --spec <update_spec.conf> [--app-version N]\n\
-           sd-updater-tools make-factory-image <updater> <app> <output> --spec <update_spec.conf>\n\
+           tang-primer-25k-sd-updater-tools make-update-package <payload> <output> --spec <update_spec.conf> [--app-version N]\n\
+           tang-primer-25k-sd-updater-tools make-factory-image <updater> <app> <output> --spec <update_spec.conf>\n\
          \n\
          --app-version は 10 進数または 0x 接頭辞付き 16 進数 (既定 0)"
     );
@@ -107,7 +107,8 @@ fn run_make_update_package(args: &[String]) -> Result<(), String> {
         .transpose()?
         .unwrap_or(0);
 
-    let spec = sd_updater_build::load(common.spec.to_str().ok_or("spec パスが不正")?)?;
+    let spec =
+        tang_primer_25k_sd_updater_build::load(common.spec.to_str().ok_or("spec パスが不正")?)?;
     let bytes = build_update_package(payload, spec, app_version)?;
     fs::write(output, bytes)
         .map_err(|error| format!("{} を書き出せない: {error}", output.display()))?;
@@ -165,7 +166,8 @@ fn run_make_factory_image(args: &[String]) -> Result<(), String> {
     let app = &common.positionals[1];
     let output = &common.positionals[2];
 
-    let spec = sd_updater_build::load(common.spec.to_str().ok_or("spec パスが不正")?)?;
+    let spec =
+        tang_primer_25k_sd_updater_build::load(common.spec.to_str().ok_or("spec パスが不正")?)?;
     let bytes = build_factory_image(updater, app, &spec)?;
     fs::write(output, bytes)
         .map_err(|error| format!("{} を書き出せない: {error}", output.display()))?;
@@ -256,7 +258,7 @@ flash.layout_id=0x46504f31
 ";
 
     fn test_spec() -> Spec {
-        sd_updater_build::parse(SAMPLE_CONF, "update_spec.conf").unwrap()
+        tang_primer_25k_sd_updater_build::parse(SAMPLE_CONF, "update_spec.conf").unwrap()
     }
 
     fn temp_dir() -> PathBuf {

@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/sd-updater",
-    "crates/sd-updater-build",
-    "crates/sd-updater-tools",
+    "crates/tang-primer-25k-sd-updater",
+    "crates/tang-primer-25k-sd-updater-build",
+    "crates/tang-primer-25k-sd-updater-tools",
 ]
 
 [profile.release]

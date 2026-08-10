@@ -1,6 +1,6 @@
 //! プロジェクト固有の update format / flash layout 定義。
 //!
-//! `sd-updater-build` が `update_spec.conf` から生成する定数を組み立て、
+//! `tang-primer-25k-sd-updater-build` が `update_spec.conf` から生成する定数を組み立て、
 //! [`crate::Updater`] に渡す。値の基準は常にプロジェクト側の `update_spec.conf` であり、
 //! この構造体に値を直書きしないこと。
 

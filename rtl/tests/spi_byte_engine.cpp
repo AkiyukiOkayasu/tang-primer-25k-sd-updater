@@ -2,26 +2,26 @@
 #include <cstdio>
 #include <vector>
 
-#include "Vfpga_sd_updater_SpiByteEngine.h"
+#include "Vtang_primer_25k_sd_updater_SpiByteEngine.h"
 #include "verilated.h"
 
 static vluint64_t main_time = 0;
 
 double sc_time_stamp() { return static_cast<double>(main_time); }
 
-static void eval(Vfpga_sd_updater_SpiByteEngine &top) {
+static void eval(Vtang_primer_25k_sd_updater_SpiByteEngine &top) {
     top.eval();
     main_time++;
 }
 
-static void tick(Vfpga_sd_updater_SpiByteEngine &top) {
+static void tick(Vtang_primer_25k_sd_updater_SpiByteEngine &top) {
     top.i_clk = 0;
     eval(top);
     top.i_clk = 1;
     eval(top);
 }
 
-static void reset(Vfpga_sd_updater_SpiByteEngine &top) {
+static void reset(Vtang_primer_25k_sd_updater_SpiByteEngine &top) {
     top.i_rst = 1;
     top.i_start = 0;
     top.i_tx_data = 0;
@@ -43,7 +43,7 @@ static bool expect_eq(const char *name, uint32_t actual, uint32_t expected) {
 int main(int argc, char **argv) {
     Verilated::commandArgs(argc, argv);
 
-    Vfpga_sd_updater_SpiByteEngine top;
+    Vtang_primer_25k_sd_updater_SpiByteEngine top;
     reset(top);
 
     bool ok = true;

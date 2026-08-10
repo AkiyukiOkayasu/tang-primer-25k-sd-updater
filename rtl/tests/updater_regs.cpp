@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <vector>
 
-#include "Vfpga_sd_updater_UpdaterRegs.h"
+#include "Vtang_primer_25k_sd_updater_UpdaterRegs.h"
 #include "verilated.h"
 
 static vluint64_t main_time = 0;
@@ -25,7 +25,7 @@ static constexpr uint32_t REG_FLASH_STATUS = BASE + 0x003c;
 static constexpr uint32_t REG_FLASH_JEDEC_ID = BASE + 0x0040;
 static constexpr uint32_t REG_FLASH_BUFFER = BASE + 0x0300;
 
-static void tick(Vfpga_sd_updater_UpdaterRegs &top) {
+static void tick(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
     top.i_clk = 0;
     top.eval();
     main_time++;
@@ -34,7 +34,7 @@ static void tick(Vfpga_sd_updater_UpdaterRegs &top) {
     main_time++;
 }
 
-static void reset(Vfpga_sd_updater_UpdaterRegs &top) {
+static void reset(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
     top.i_rst = 1;
     top.i_mem_valid = 0;
     top.i_mem_addr = 0;
@@ -46,7 +46,7 @@ static void reset(Vfpga_sd_updater_UpdaterRegs &top) {
     tick(top);
 }
 
-static void write_reg(Vfpga_sd_updater_UpdaterRegs &top, uint32_t addr, uint32_t value) {
+static void write_reg(Vtang_primer_25k_sd_updater_UpdaterRegs &top, uint32_t addr, uint32_t value) {
     top.i_mem_valid = 1;
     top.i_mem_addr = addr;
     top.i_mem_wdata = value;
@@ -57,7 +57,7 @@ static void write_reg(Vfpga_sd_updater_UpdaterRegs &top, uint32_t addr, uint32_t
     tick(top);
 }
 
-static uint32_t read_reg(Vfpga_sd_updater_UpdaterRegs &top, uint32_t addr) {
+static uint32_t read_reg(Vtang_primer_25k_sd_updater_UpdaterRegs &top, uint32_t addr) {
     top.i_mem_valid = 1;
     top.i_mem_addr = addr;
     top.i_mem_wdata = 0;
@@ -69,7 +69,7 @@ static uint32_t read_reg(Vfpga_sd_updater_UpdaterRegs &top, uint32_t addr) {
     return value;
 }
 
-static uint32_t peek_reg(Vfpga_sd_updater_UpdaterRegs &top, uint32_t addr) {
+static uint32_t peek_reg(Vtang_primer_25k_sd_updater_UpdaterRegs &top, uint32_t addr) {
     top.i_mem_valid = 1;
     top.i_mem_addr = addr;
     top.i_mem_wdata = 0;
@@ -98,7 +98,7 @@ class W25q64Model {
 public:
     W25q64Model() : memory(8 * 1024 * 1024, 0xff) {}
 
-    void drive(Vfpga_sd_updater_UpdaterRegs &top) {
+    void drive(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
         static constexpr uint8_t jedec[3] = {0xef, 0x40, 0x17};
         if (top.o_flash_cs_n) {
             reset_transfer();
@@ -121,7 +121,7 @@ public:
         }
     }
 
-    void capture(Vfpga_sd_updater_UpdaterRegs &top) {
+    void capture(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
         const bool sclk = top.o_flash_sclk != 0;
         if (!top.o_flash_cs_n && !prev_sclk && sclk) {
             rx_shift = static_cast<uint8_t>((rx_shift << 1) | (top.o_flash_mosi ? 1 : 0));
@@ -231,7 +231,7 @@ private:
     bool status_poll_seen = false;
 };
 
-static void tick_flash(Vfpga_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
+static void tick_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
     top.i_clk = 0;
     top.eval();
     flash.drive(top);
@@ -246,7 +246,7 @@ static void tick_flash(Vfpga_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
 }
 
 static void write_reg_flash(
-    Vfpga_sd_updater_UpdaterRegs &top,
+    Vtang_primer_25k_sd_updater_UpdaterRegs &top,
     W25q64Model &flash,
     uint32_t addr,
     uint32_t value
@@ -261,7 +261,7 @@ static void write_reg_flash(
     tick_flash(top, flash);
 }
 
-static uint32_t read_reg_flash(Vfpga_sd_updater_UpdaterRegs &top, W25q64Model &flash, uint32_t addr) {
+static uint32_t read_reg_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model &flash, uint32_t addr) {
     top.i_mem_valid = 1;
     top.i_mem_addr = addr;
     top.i_mem_wdata = 0;
@@ -273,7 +273,7 @@ static uint32_t read_reg_flash(Vfpga_sd_updater_UpdaterRegs &top, W25q64Model &f
     return value;
 }
 
-static bool wait_flash_ready(Vfpga_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
+static bool wait_flash_ready(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
     for (int i = 0; i < 8000; i++) {
         if ((read_reg_flash(top, flash, REG_FLASH_STATUS) & 1) == 0) {
             return true;
@@ -290,7 +290,7 @@ static bool wait_flash_ready(Vfpga_sd_updater_UpdaterRegs &top, W25q64Model &fla
     return false;
 }
 
-static bool wait_sd_ready(Vfpga_sd_updater_UpdaterRegs &top) {
+static bool wait_sd_ready(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
     for (int i = 0; i < 2000; i++) {
         if ((read_reg(top, REG_SD_STATUS) & 1) == 0) {
             return true;
@@ -302,7 +302,7 @@ static bool wait_sd_ready(Vfpga_sd_updater_UpdaterRegs &top) {
 int main(int argc, char **argv) {
     Verilated::commandArgs(argc, argv);
 
-    Vfpga_sd_updater_UpdaterRegs top;
+    Vtang_primer_25k_sd_updater_UpdaterRegs top;
     top.i_flash_miso = 1;
     top.i_sd_miso = 1;
     reset(top);

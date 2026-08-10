@@ -52,7 +52,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "sd-updater"
+name = "stable_deref_trait"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "tang-primer-25k-sd-updater"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
@@ -60,19 +66,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "sd-updater-build"
+name = "tang-primer-25k-sd-updater-build"
 version = "0.1.0"
 
 [[package]]
-name = "sd-updater-tools"
+name = "tang-primer-25k-sd-updater-tools"
 version = "0.1.0"
 dependencies = [
- "sd-updater",
- "sd-updater-build",
+ "tang-primer-25k-sd-updater",
+ "tang-primer-25k-sd-updater-build",
 ]
-
-[[package]]
-name = "stable_deref_trait"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"

@@ -1,7 +1,7 @@
 //! `update_spec.conf` からプロジェクト側の Rust 定数を生成する build 補助ライブラリ。
 //!
 //! プロジェクトの `build.rs` から `generate()` を呼ぶ。ホストツール
-//! (`sd-updater-tools`) は `load()` で同じ仕様を読み、package / factory image を生成する。
+//! (`tang-primer-25k-sd-updater-tools`) は `load()` で同じ仕様を読み、package / factory image を生成する。
 //! パース・検証のロジックはこの crate が唯一の実装であり、他言語実装との同期は不要。
 
 use std::collections::BTreeMap;
@@ -29,8 +29,8 @@ const REQUIRED_KEYS: &[&str] = &[
 
 /// `update_spec.conf` の内容 (ホスト側、`String` 所有)。
 ///
-/// firmware 側の生成定数 [`sd_updater::UpdateSpec`] とは別物。こちらは
-/// `sd-updater-tools` がファイルから直接読み込むために使う。
+/// firmware 側の生成定数 [`tang_primer_25k_sd_updater::UpdateSpec`] とは別物。こちらは
+/// `tang-primer-25k-sd-updater-tools` がファイルから直接読み込むために使う。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Spec {
     pub file_name: String,
@@ -66,7 +66,7 @@ pub fn load(spec_path: &str) -> Result<Spec, String> {
 
 /// `update_spec.conf` を読み、`$OUT_DIR/update_spec.rs` に `SPEC` 定数を生成する。
 ///
-/// 生成コードは `sd_updater::UpdateSpec` を参照するため、依存 crate の名前は
+/// 生成コードは `tang_primer_25k_sd_updater::UpdateSpec` を参照するため、依存 crate の名前は
 /// `sd_updater` にする必要がある。`cargo:rerun-if-changed=update_spec.conf` の emit は
 /// build-dependency の stdout が転送されないため、呼び出し側の build.rs で行うこと。
 pub fn generate(spec_path: &str) -> Result<(), String> {
@@ -195,9 +195,9 @@ fn generate_rust(spec: &Spec, _path: &str) -> Result<String, String> {
 
     Ok(format!(
         "\
-// このファイルは sd-updater-build が update_spec.conf から生成する。手編集しないこと。
-// 生成コードは sd_updater::UpdateSpec を参照する。依存 crate の名前は sd_updater にする。
-pub const SPEC: sd_updater::UpdateSpec = sd_updater::UpdateSpec {{
+// このファイルは tang-primer-25k-sd-updater-build が update_spec.conf から生成する。手編集しないこと。
+// 生成コードは tang_primer_25k_sd_updater::UpdateSpec を参照する。依存 crate の名前は tang_primer_25k_sd_updater にする。
+pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec = tang_primer_25k_sd_updater::UpdateSpec {{
     file_name: \"{file_name}\",
     magic: [{magic}],
     header_size: {header_size},
@@ -298,7 +298,7 @@ flash.layout_id=0x46504f31
         )
         .unwrap();
         let generated = generate_rust(&spec, "update_spec.conf").unwrap();
-        assert!(generated.contains("pub const SPEC: sd_updater::UpdateSpec"));
+        assert!(generated.contains("pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec"));
         assert!(generated.contains("file_name: \"FPGAOSC.UPD\""));
     }
 }
