@@ -66,20 +66,29 @@ loop {
 tang_primer_25k_sd_updater = { version = "0.1.0" }
 ```
 
-`top.veryl` でモジュールを配線し、パラメータを渡す:
+`top.veryl` は `UpdaterCore` (PicoRV32 + TCM + レジスタを内蔵) とボード固有の
+SD / Flash / reconfig ピンを配線するだけ:
 
 ```veryl
-inst regs: tang_primer_25k_sd_updater_UpdaterRegs #(
+inst core: tang_primer_25k_sd_updater::UpdaterCore #(
+    TCM_ADDR_WIDTH: 15,
+    HEX_FILE      : "updater.hex",
     BASE          : 32'h03_0000,
     FLASH_APP_BASE: 32'h0010_0000,
     FLASH_APP_END : 32'h0020_0000,
-) ( ... );
-
-inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
-    ADDR_WIDTH: 15,
-    HEX_FILE  : "updater.hex",
-) ( ... );
+) (
+    i_clk: clk, i_rst: rst,
+    o_sd_cs_n: sd_cs_n, o_sd_sclk: sd_sclk, o_sd_mosi: sd_mosi,
+    i_sd_miso: sd_miso, i_sd_cd: sd_cd,
+    o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
+    o_flash_mosi: flash_mosi, i_flash_miso: flash_miso,
+    o_reconfig_trig_n: reconfig_trig_n,
+    o_state: state,
+);
 ```
+
+PicoRV32 (`rtl/vendor/picorv32/picorv32.v`, ISC license) はリポジトリに同梱済み。
+Gowin プロジェクトのファイルリストに追加すること (veryl build の生成物には含まれない)。
 
 ### ホストツール
 
@@ -105,7 +114,9 @@ crates/
 ├── tang-primer-25k-sd-updater-build/  # build.rs 補助 (update_spec.toml → Rust 定数)
 └── tang-primer-25k-sd-updater-tools/  # ホスト CLI (更新ファイル / factory image 生成)
 rtl/
-└── src/               # Veryl ライブラリ tang_primer_25k_sd_updater (RTL モジュール群)
+├── src/               # Veryl ライブラリ tang_primer_25k_sd_updater (PicoMemBus / PicoTcm /
+│                      #   rst_bridge / SpiByteEngine / UpdaterRegs / UpdaterCore)
+└── vendor/picorv32/   # PicoRV32 ソース (ISC license、同梱)
 ```
 
 ## 開発

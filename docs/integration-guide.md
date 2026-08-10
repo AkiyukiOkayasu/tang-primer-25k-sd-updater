@@ -439,12 +439,11 @@ impl BoardIo for UpdaterMmio {
 
 ## 6. top.veryl (完全な配線例)
 
-`top.veryl` が作るもの: PicoRV32 (SV) + `rst_bridge` + `PicoMemBus` + `PicoTcm` +
-`UpdaterRegs` + デバッグ出力の配線。SD / Flash のピンは基板に合わせて接続する。
+PicoRV32 / rst_bridge / PicoMemBus / PicoTcm / UpdaterRegs はライブラリの
+`UpdaterCore` が内蔵しているので、`top.veryl` は UpdaterCore とボード固有のピンを
+配線するだけになる。SD / Flash のピンは基板に合わせて接続する。
 Tang Primer 25K では Flash を CFG/MSPI ピン (E6=MCS_N, E7=CCLK, D6=MOSI, E5=MISO)、
 SD を Pmod MicroSD に接続する。
-ライブラリのモジュールは `ライブラリ名::モジュール名` で参照するが、`UpdaterRegs` は
-生成モジュール名 (`ライブラリ名_UpdaterRegs`) で参照する (この理由は生成 SV の module 名に依存する)。
 
 ```veryl
 module UpdaterTop (
@@ -462,102 +461,21 @@ module UpdaterTop (
     state        : output logic<4>,  /// firmware 状態表示コード (0x0-0xF)
     reconfig_trig_n: output logic,   /// MultiBoot トリガ (外部で RECONFIG_N へ)
 ) {
-    var rst_delayed: reset_sync_high;
-    inst reset_bridge: tang_primer_25k_sd_updater::rst_bridge #(
-        DELAY_CYCLES: 256,
-    ) ( clk, rst, rst_sync: rst_delayed );
-
-    var mem_valid: logic;    var mem_ready: logic;
-    var mem_addr : logic<32>; var mem_wdata: logic<32>;
-    var mem_wstrb: logic<4>; var mem_rdata: logic<32>;
-    var trap: logic;
-
-    inst rv: $sv::picorv32 #(
-        LATCHED_MEM_RDATA   : 1            ,
-        TWO_STAGE_SHIFT     : 1            ,
-        BARREL_SHIFTER      : 0            ,
-        TWO_CYCLE_COMPARE   : 1            ,
-        TWO_CYCLE_ALU       : 1            ,
-        COMPRESSED_ISA      : 1            ,
-        CATCH_MISALIGN      : 1            ,
-        CATCH_ILLINSN       : 1            ,
-        DISABLE_CSR         : 1            ,
-        ENABLE_PCPI         : 0            ,
-        ENABLE_MUL          : 1            ,
-        ENABLE_DIV          : 1            ,
-        ENABLE_IRQ          : 0            ,
-        REGS_INIT_ZERO      : 1            ,
-        PROGADDR_RESET      : 32'h0000_0000,
-        STACKADDR           : 32'h0000_8000,
-    ) (
-        clk       : clk          ,
-        resetn    : ~rst_delayed ,
-        trap      : trap         ,
-        mem_valid : mem_valid    ,
-        mem_instr : _            ,
-        mem_ready : mem_ready    ,
-        mem_addr  : mem_addr     ,
-        mem_wdata : mem_wdata    ,
-        mem_wstrb : mem_wstrb    ,
-        mem_rdata : mem_rdata    ,
-        pcpi_wr   : 0            ,
-        pcpi_wait : 0            ,
-        pcpi_ready: 0            ,
-        pcpi_rd   : 0            ,
-        irq       : 32'h0000_0000,
-    );
-
-    var tcm_mem_valid: logic;    var tcm_mem_addr : logic<15>;
-    var tcm_mem_wdata: logic<32>; var tcm_mem_wstrb: logic<4>;
-    var tcm_mem_rdata: logic<32>;
-    var peri_mem_valid: logic;    var peri_mem_addr : logic<22>;
-    var peri_mem_wdata: logic<32>; var peri_mem_wstrb: logic<4>;
-    var peri_mem_rdata: logic<32>;
-
-    inst mem_bus: tang_primer_25k_sd_updater::PicoMemBus (
-        i_clk: clk, i_rst: rst_delayed,
-        i_mem_valid: mem_valid, i_mem_addr: mem_addr,
-        i_mem_wdata: mem_wdata, i_mem_wstrb: mem_wstrb,
-        o_mem_ready: mem_ready, o_mem_rdata: mem_rdata,
-        o_tcm_valid: tcm_mem_valid, o_tcm_addr: tcm_mem_addr,
-        o_tcm_wdata: tcm_mem_wdata, o_tcm_wstrb: tcm_mem_wstrb,
-        i_tcm_rdata: tcm_mem_rdata,
-        o_peri_valid: peri_mem_valid, o_peri_addr: peri_mem_addr,
-        o_peri_wdata: peri_mem_wdata, o_peri_wstrb: peri_mem_wstrb,
-        i_peri_rdata: peri_mem_rdata,
-    );
-
-    inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
-        ADDR_WIDTH: 15,          // 32KB (firmware の memory.x と合わせる)
-        HEX_FILE  : "updater.hex",
-    ) (
-        i_clk: clk,
-        i_mem_valid: tcm_mem_valid, i_mem_addr: tcm_mem_addr,
-        i_mem_wdata: tcm_mem_wdata, i_mem_wstrb: tcm_mem_wstrb,
-        o_mem_rdata: tcm_mem_rdata,
-    );
-
-    var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
-    inst regs: tang_primer_25k_sd_updater_UpdaterRegs #(
+    inst core: tang_primer_25k_sd_updater::UpdaterCore #(
+        TCM_ADDR_WIDTH: 15,           // 32KB (firmware の memory.x と合わせる)
+        HEX_FILE      : "updater.hex",
         BASE          : 32'h03_0000,
         FLASH_APP_BASE: 32'h0010_0000,
         FLASH_APP_END : 32'h0020_0000,
     ) (
-        i_clk: clk, i_rst: rst_delayed,
-        i_mem_valid: peri_mem_valid, i_mem_addr: peri_mem_addr,
-        i_mem_wdata: peri_mem_wdata, i_mem_wstrb: peri_mem_wstrb,
-        o_mem_rdata: peri_mem_rdata,
-        o_state: state_enum,
+        i_clk: clk, i_rst: rst,
         o_sd_cs_n: sd_cs_n, o_sd_sclk: sd_sclk, o_sd_mosi: sd_mosi,
         i_sd_miso: sd_miso, i_sd_cd: sd_cd,
         o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
         o_flash_mosi: flash_mosi, i_flash_miso: flash_miso,
         o_reconfig_trig_n: reconfig_trig_n,
+        o_state: state,
     );
-
-    // CST (Gowin のピン制約ファイル) が state[0..3] を個別ピンに割り当てるため logic<4>。
-    // enum → logic は assign で暗黙変換される。
-    assign state = if trap ? tang_primer_25k_sd_updater::updater_pkg::UpdaterState::ERROR : state_enum;
 }
 ```
 
@@ -565,23 +483,25 @@ module UpdaterTop (
 
 | パラメータ | 値の決め方 |
 | --- | --- |
-| `PicoTcm.ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
-| `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する (veryl build が生成するディレクトリ) |
-| `UpdaterRegs.BASE` | peripheral 窓内のベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
-| `UpdaterRegs.FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
+| `TCM_ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
+| `HEX_FILE` | `$readmemh` のファイル名。Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する (veryl build が生成するディレクトリ) |
+| `BASE` | UpdaterRegs の peripheral 窓内ベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
+| `FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
+
+`UpdaterCore` が公開する `o_state` (logic<4>) は firmware の進行状態コード (第 9.1 節)。
+LED 表示にする場合は、利用プロジェクト側で state を加工する (例: 更新中は点滅、エラーは常灯)。
 
 ---
 
 ## 7. PicoRV32 の入手とパラメータ
 
-- ソース: cliffordwolf/PicoRV32 の `picorv32.v` をプロジェクトに取り込む。
-  **リビジョンは固定して取り込む** (ポート構成はリビジョンで変わるため、接続例は
-  固定リビジョン前提。採用したリビジョンを記録しておくこと)
-- updater 用のパラメータは第 6 節の例の通り (CSR 不使用、`ENABLE_MUL/DIV` は firmware の
-  除算・乗算に必要)。調整が必要なのは `TWO_STAGE_SHIFT / TWO_CYCLE_ALU` のみ
-  (Fmax とのトレードオフ。タイミングに問題があれば調整)
+- ソース: `rtl/vendor/picorv32/picorv32.v` に同梱 (ISC license、リビジョン固定)。
+  別途入手の必要はない
 - `picorv32.v` は Gowin プロジェクトのファイルリストに**別途追加**する
-  (`veryl build` の生成物には含まれない)
+  (`veryl build` の生成物には含まれない。リポジトリ内の `rtl/vendor/picorv32/picorv32.v` を参照する)
+- パラメータは `UpdaterCore` に内蔵されており固定 (CSR 不使用、`ENABLE_MUL/DIV` は firmware の
+  除算・乗算に必要)。調整が必要なのは `TWO_STAGE_SHIFT / TWO_CYCLE_ALU` のみ
+  (Fmax とのトレードオフ。タイミングに問題があれば `UpdaterCore` 側を編集する)
 
 ---
 

@@ -1,0 +1,211 @@
+/// PicoRV32 + rst_bridge + PicoMemBus + PicoTcm + UpdaterRegs を内蔵した updater サブシステム。
+///
+/// 利用プロジェクトの top は本モジュールとボード固有の SD / Flash / reconfig ピンを
+/// 配線するだけでよい。
+///
+/// # 同梱物
+///
+/// `picorv32.v` は `rtl/vendor/picorv32/` に同梱 (ISC license)。利用プロジェクトの
+/// ファイルリストに追加すること (veryl build の生成物には含まれない)。
+pub module UpdaterCore #(
+    param DELAY_CYCLES  : u32    = 256          , /// リセット解除後の遅延サイクル数
+    param TCM_ADDR_WIDTH: u32    = 15           , /// TCM アドレス幅 (32KB = 15bit)
+    param HEX_FILE      : string = "updater.hex", /// TCM の $readmemh で読む hex ファイル名
+    param BASE          : u32    = 32'h0003_0000, /// UpdaterRegs の peripheral 窓内ベースオフセット
+    param FLASH_APP_BASE: u32    = 32'h0010_0000, /// app slot 先頭 (update_spec.toml の flash.app_base)
+    param FLASH_APP_END : u32    = 32'h0020_0000, /// app slot 末尾 (app_base + app_size)
+) (
+    i_clk: input clock           ,
+    i_rst: input reset_async_high,
+
+    o_sd_cs_n: output logic, /// SD CS#
+    o_sd_sclk: output logic, /// SD SCK
+    o_sd_mosi: output logic, /// SD MOSI
+    i_sd_miso: input  logic, /// SD MISO
+    i_sd_cd  : input  logic, /// SD card detect
+
+    o_flash_cs_n: output logic, /// Flash CS#
+    o_flash_sclk: output logic, /// Flash SCK
+    o_flash_mosi: output logic, /// Flash MOSI
+    i_flash_miso: input  logic, /// Flash MISO
+
+    o_reconfig_trig_n: output logic   , /// MultiBoot トリガ (外部で RECONFIG_N へ)
+    o_state          : output logic<4>, /// firmware 状態表示コード (0x0-0xF, trap は 0xF)
+) {
+    // =========================================
+    // Global Reset Synchronization and Delay
+    // =========================================
+    var rst_delayed: reset_sync_high;
+    inst reset_bridge: rst_bridge #(
+        DELAY_CYCLES: DELAY_CYCLES,
+    ) (
+        clk     : i_clk      ,
+        rst     : i_rst      ,
+        rst_sync: rst_delayed,
+    );
+
+    // =========================================
+    // PicoRV32 (soft-core CPU)
+    // =========================================
+    var mem_valid: logic    ;
+    var mem_ready: logic    ;
+    var mem_addr : logic<32>;
+    var mem_wdata: logic<32>;
+    var mem_wstrb: logic<4> ;
+    var mem_rdata: logic<32>;
+    var trap     : logic    ;
+
+    inst rv: $sv::picorv32 #(
+        ENABLE_COUNTERS     : 1            ,
+        ENABLE_COUNTERS64   : 0            ,
+        ENABLE_REGS_16_31   : 1            ,
+        ENABLE_REGS_DUALPORT: 0            ,
+        LATCHED_MEM_RDATA   : 1            ,
+        TWO_STAGE_SHIFT     : 1            ,
+        BARREL_SHIFTER      : 0            ,
+        TWO_CYCLE_COMPARE   : 1            ,
+        TWO_CYCLE_ALU       : 1            ,
+        COMPRESSED_ISA      : 1            ,
+        CATCH_MISALIGN      : 1            ,
+        CATCH_ILLINSN       : 1            ,
+        DISABLE_CSR         : 1            ,
+        ENABLE_PCPI         : 0            ,
+        ENABLE_MUL          : 1            ,
+        ENABLE_FAST_MUL     : 0            ,
+        ENABLE_DIV          : 1            ,
+        ENABLE_IRQ          : 0            ,
+        ENABLE_IRQ_QREGS    : 0            ,
+        ENABLE_IRQ_TIMER    : 0            ,
+        ENABLE_TRACE        : 0            ,
+        REGS_INIT_ZERO      : 1            ,
+        MASKED_IRQ          : 32'h0000_0000,
+        LATCHED_IRQ         : 32'h0000_0000,
+        PROGADDR_RESET      : 32'h0000_0000,
+        PROGADDR_IRQ        : 32'h0000_0010,
+        STACKADDR           : 32'h0000_8000,
+    ) (
+        clk                  : i_clk        ,
+        resetn               : ~rst_delayed ,
+        trap                 : trap         ,
+        mem_valid            : mem_valid    ,
+        mem_instr            : _            ,
+        mem_ready            : mem_ready    ,
+        mem_addr             : mem_addr     ,
+        mem_wdata            : mem_wdata    ,
+        mem_wstrb            : mem_wstrb    ,
+        mem_rdata            : mem_rdata    ,
+        dbg_insn_addr_o      : _            ,
+        dbg_insn_opcode_o    : _            ,
+        dbg_insn_valid_o     : _            ,
+        pcpi_valid           : _            ,
+        pcpi_insn            : _            ,
+        pcpi_rs1             : _            ,
+        pcpi_rs2             : _            ,
+        pcpi_wr              : 0            ,
+        pcpi_wait            : 0            ,
+        pcpi_ready           : 0            ,
+        pcpi_rd              : 0            ,
+        irq                  : 32'h0000_0000,
+        eoi                  : _            ,
+        trace_valid          : _            ,
+        trace_data           : _            ,
+        dbg_trap_illinsn     : _            ,
+        dbg_trap_ebreak      : _            ,
+        dbg_trap_misalign    : _            ,
+        dbg_trap_pcpi_timeout: _            ,
+        dbg_trap_pc_low      : _            ,
+        dbg_trap_ecall_ebreak: _            ,
+        dbg_trap_op1_low     : _            ,
+        dbg_trap_mem_wordsize: _            ,
+        dbg_trap_is_rinst    : _            ,
+        mem_la_read          : _            ,
+        mem_la_write         : _            ,
+        mem_la_addr          : _            ,
+        mem_la_wdata         : _            ,
+        mem_la_wstrb         : _            ,
+    );
+
+    // =========================================
+    // Memory bus (TCM / peripheral の振り分け)
+    // =========================================
+    var tcm_mem_valid: logic                ;
+    var tcm_mem_addr : logic<TCM_ADDR_WIDTH>;
+    var tcm_mem_wdata: logic<32>            ;
+    var tcm_mem_wstrb: logic<4>             ;
+    var tcm_mem_rdata: logic<32>            ;
+
+    var peri_mem_valid: logic    ;
+    var peri_mem_addr : logic<22>;
+    var peri_mem_wdata: logic<32>;
+    var peri_mem_wstrb: logic<4> ;
+    var peri_mem_rdata: logic<32>;
+
+    inst mem_bus: PicoMemBus #(
+        TCM_ADDR_WIDTH: TCM_ADDR_WIDTH,
+    ) (
+        i_clk       : i_clk         ,
+        i_rst       : rst_delayed   ,
+        i_mem_valid : mem_valid     ,
+        i_mem_addr  : mem_addr      ,
+        i_mem_wdata : mem_wdata     ,
+        i_mem_wstrb : mem_wstrb     ,
+        o_mem_ready : mem_ready     ,
+        o_mem_rdata : mem_rdata     ,
+        o_tcm_valid : tcm_mem_valid ,
+        o_tcm_addr  : tcm_mem_addr  ,
+        o_tcm_wdata : tcm_mem_wdata ,
+        o_tcm_wstrb : tcm_mem_wstrb ,
+        i_tcm_rdata : tcm_mem_rdata ,
+        o_peri_valid: peri_mem_valid,
+        o_peri_addr : peri_mem_addr ,
+        o_peri_wdata: peri_mem_wdata,
+        o_peri_wstrb: peri_mem_wstrb,
+        i_peri_rdata: peri_mem_rdata,
+    );
+
+    // =========================================
+    // TCM (firmware 常駐メモリ)
+    // =========================================
+    inst tcm: PicoTcm #(
+        ADDR_WIDTH: TCM_ADDR_WIDTH,
+        HEX_FILE  : HEX_FILE      ,
+    ) (
+        i_clk      : i_clk        ,
+        i_mem_valid: tcm_mem_valid,
+        i_mem_addr : tcm_mem_addr ,
+        i_mem_wdata: tcm_mem_wdata,
+        i_mem_wstrb: tcm_mem_wstrb,
+        o_mem_rdata: tcm_mem_rdata,
+    );
+
+    // =========================================
+    // Updater registers (SD / Flash / reconfig)
+    // =========================================
+    var state_enum: updater_pkg::UpdaterState;
+    inst regs: UpdaterRegs #(
+        BASE          : BASE          ,
+        FLASH_APP_BASE: FLASH_APP_BASE,
+        FLASH_APP_END : FLASH_APP_END ,
+    ) (
+        i_clk            : i_clk            ,
+        i_rst            : rst_delayed      ,
+        i_mem_valid      : peri_mem_valid   ,
+        i_mem_addr       : peri_mem_addr    ,
+        i_mem_wdata      : peri_mem_wdata   ,
+        i_mem_wstrb      : peri_mem_wstrb   ,
+        o_mem_rdata      : peri_mem_rdata   ,
+        o_state          : state_enum       ,
+        o_sd_cs_n        : o_sd_cs_n        ,
+        o_sd_sclk        : o_sd_sclk        ,
+        o_sd_mosi        : o_sd_mosi        ,
+        i_sd_miso        : i_sd_miso        ,
+        i_sd_cd          : i_sd_cd          ,
+        o_flash_cs_n     : o_flash_cs_n     ,
+        o_flash_sclk     : o_flash_sclk     ,
+        o_flash_mosi     : o_flash_mosi     ,
+        i_flash_miso     : i_flash_miso     ,
+        o_reconfig_trig_n: o_reconfig_trig_n,
+    );
+
+    assign o_state = if trap ? updater_pkg::UpdaterState::ERROR : state_enum;
+}
