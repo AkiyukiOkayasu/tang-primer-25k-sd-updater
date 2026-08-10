@@ -534,7 +534,6 @@ module UpdaterTop (
     );
 
     var state_enum: fpga_sd_updater::updater_pkg::UpdaterState;
-    var state_out : logic<4>;
     inst regs: fpga_sd_updater::UpdaterRegs #(
         BASE          : 32'h03_0000,   // firmware の UPDATER_PERIPH_BASE の下位 22bit
         FLASH_APP_BASE: 32'h0010_0000, // update_spec.conf の app_base と一致させる
@@ -552,8 +551,9 @@ module UpdaterTop (
         o_reconfig_trig_n: reconfig_trig_n,
     );
 
-    assign state_out = state_enum;              // enum → logic (暗黙変換)
-    assign state     = if trap ? 4'hF : state_out;
+    // state ポートは CST がビット選択 (state[0..3]) するため logic<4>。
+    // enum → logic の変換は assign で暗黙に行われる。
+    assign state = if trap ? fpga_sd_updater::updater_pkg::UpdaterState::ERROR : state_enum;
 }
 ```
 
