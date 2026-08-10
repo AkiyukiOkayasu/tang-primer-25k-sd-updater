@@ -6,7 +6,9 @@
 
 前提: **Tang Primer 25K (GW5A-25A MBGA121N, Arora V)** + **PicoRV32 ソフトコア** + **Veryl**。
 他の GW5A 系ボードへ移植する場合は、Configuration Flash のピンアサインと MultiBoot 設定を確認する。
-再構成は MultiBoot (`RECONFIG_N` への Low pulse、ボードで外部プルアップ済み) を使用します。
+再構成は MultiBoot + `RECONFIG_N` Low pulse を使用します (配線は 9.2)。
+システムクロック 50 MHz 前提 (firmware の delay 換算)。別クロックで使う場合は delay の換算を調整する。
+updater firmware は TCM 32KB 以内、SD カードは FAT32。
 
 ---
 
@@ -42,7 +44,7 @@
 
 | 要素 | このリポジトリの場所 | プロジェクト側で作るもの |
 |---|---|---|
-| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` 実装 + `main.rs` + `update_spec.toml` |
+| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` (firmware と MMIO を繋ぐトレイト、実装例は第 5 章) + `main.rs` + `update_spec.toml` |
 | ビルド補助 | `crates/tang-primer-25k-sd-updater-build` | `build.rs` から呼ぶ |
 | ホストツール | `crates/tang-primer-25k-sd-updater-tools` | なし (CLI として使用) |
 | RTL ライブラリ | `rtl/` (Veryl `tang_primer_25k_sd_updater`) | `top.veryl` (配線のみ) |
@@ -55,11 +57,11 @@
 `Updater::poll_once()` が 1 回呼ばれると、以下のフローが最後まで進む:
 
 1. `open_sd_card()` — SD カードを初期化
-   - まず `sd_card_detect()` で未挿入を即判定 (未挿入なら即エラー → app へ移行)
-   - 100ms 待機 → dummy clock → CMD0/CMD8/ACMD41/CMD58 (embedded-sdmmc)
-   - FAT ボリュームをマウント
-2. `read_header()` — 固定ファイル名 (`UpdateSpec.file_name`) の header を読み、検証:
-   - magic / format_version / target_hw_id / target_fpga_id / flash_layout_id / payload_size
+   - `sd_card_detect()` で未挿入を即判定 (未挿入なら即エラー → app へ移行)
+   - embedded-sdmmc で初期化し、FAT ボリュームをマウント
+2. `read_header()` — 固定ファイル名 (`UpdateSpec.file_name`) の header を読み、
+   `update_spec.toml` 由来の生成定数 (SPEC) と一致するか検証
+   (magic / format_version / target_hw_id / target_fpga_id / flash_layout_id / payload_size。詳細は第 3 節)
 3. **skip 判定**: app slot の現内容の **CRC32** を header の `payload_crc32` と比較
    - 一致 → 書き込みをスキップして reconfig (SD payload は読まない)
    - 不一致 → 次へ
@@ -79,6 +81,10 @@
 ホストツール `tang-primer-25k-sd-updater-tools make-update-package` が生成する形式。
 header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 
+```sh
+tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec update_spec.toml
+```
+
 | offset | サイズ | フィールド | 説明 |
 |---|---|---|---|
 | 0x00 | 8 | magic | ファイル形式識別子 (プロジェクト固有) |
@@ -86,18 +92,15 @@ header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 | 0x0C | 4 | target_hw_id | 製品識別子 (プロジェクト固有) |
 | 0x10 | 4 | target_fpga_id | 対象 FPGA 識別子 |
 | 0x14 | 4 | flash_layout_id | フラッシュ配置識別子 (プロジェクト固有) |
-| 0x18 | 4 | app_version | アプリバージョン (情報のみ、判定に使わない) |
+| 0x18 | 4 | app_version | アプリバージョン (`make-update-package` の `--app-version` で指定。情報のみ) |
 | 0x1C | 4 | payload_offset | payload のオフセット (= header_size) |
 | 0x20 | 4 | payload_size | payload のサイズ |
 | 0x24 | 4 | payload_crc32 | payload の CRC32 |
-| 0x28 | 32 | reserved | 旧 payload_sha256 フィールド (ゼロ埋め) |
+| 0x28 | 32 | reserved | 予約領域 (ゼロ埋め) |
 
 値の基準は常にプロジェクトの `update_spec.toml`。
 
-- `header_size` は **0x48 以上**であること (sha256 フィールドが収まる範囲。
-  0x58 の場合 0x48..0x58 の 16 バイトはゼロ埋めの予約領域)
-- チェックの詳細: magic / format_version / target / layout は header のみで判定。
-  payload の整合性は CRC32 (書き込み前 + skip 判定)
+- `header_size` は **0x48 以上**であること (0x28 以降はゼロ埋めの予約領域)
 
 ---
 
@@ -138,7 +141,8 @@ target = "riscv32imc-unknown-none-elf"
 
 [target.riscv32imc-unknown-none-elf]
 rustflags = ["-C", "link-arg=-Tlink.x"]
-runner = "false # RISC-V binary cannot run on host."
+# RISC-V binary cannot run on host.
+runner = "false"
 ```
 
 `memory.x` (riscv-rt の link.x が参照する。TCM 32KB = RAM 28K + STACK 4K):
@@ -173,12 +177,11 @@ fn main() {
 `main.rs` (entry。`mmio` モジュールは第 5 節のテンプレートで実装する):
 
 ```rust
-#![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_main)]
+#![no_std]
+#![no_main]
 
 mod mmio;
 
-#[cfg(not(test))]
 use panic_halt as _; // panic 時のハンドラ (リンクに必要)
 
 use mmio::UpdaterMmio;
@@ -186,11 +189,10 @@ use tang_primer_25k_sd_updater::Updater;
 
 include!(concat!(env!("OUT_DIR"), "/update_spec.rs"));
 
-#[cfg(not(test))]
 #[unsafe(export_name = "_setup_interrupts")]
 fn setup_interrupts() {}
 
-#[cfg_attr(not(test), riscv_rt::entry)]
+#[riscv_rt::entry]
 fn main() -> ! {
     let mmio = unsafe { UpdaterMmio::new() };
     let mut updater = Updater::new(mmio, SPEC);
@@ -229,7 +231,7 @@ tang_primer_25k_sd_updater = { version = "0.1.0" }
 ### 4.3 update_spec.toml
 
 プロジェクト固有の値 (hw_id / flash layout) を定義する唯一のファイル。
-リポジトリの `update_spec.example.toml` を雛形として使う。
+下記を雛形として、プロジェクトの値に書き換える (リポジトリの `update_spec.example.toml` に同内容のサンプルがある)。
 キー集合と構文は tang-primer-25k-sd-updater-build のドキュメントを参照。
 
 ```toml
@@ -257,7 +259,11 @@ layout_id = 0x4c415931
 
 | キー | 役割 |
 |---|---|
-| `package.*` | パッケージ形式の識別子 (第 3 節の表) |
+| `file_name` | SD から読む固定ファイル名 (FAT32 8.3: 8 文字 + 拡張子 3 文字) |
+| `magic_hex` | header 先頭 8 byte の 16 進数 (16 文字) |
+| `header_size` / `format_version` | header サイズ / パッケージ形式バージョン (第 3 節) |
+| `target_hw_id` / `target_fpga_id` | 製品 / FPGA 識別子 (第 3 節) |
+| `flash.flash_size_bytes` | Configuration Flash の容量 |
 | `flash.updater_base/size` | updater bitstream を置く領域 (通常 0x000000 から) |
 | `flash.app_base/size` | 更新対象の app slot。firmware の書き込み先と `UpdaterRegs.FLASH_APP_*` に一致させる |
 | `flash.metadata_*` | 将来の適用済み管理用に予約 (現行フローでは未使用) |
@@ -276,7 +282,8 @@ layout_id = 0x4c415931
 use core::ptr::{read_volatile, write_volatile};
 use tang_primer_25k_sd_updater::{BoardIo, IoError};
 
-pub const UPDATER_PERIPH_BASE: usize = 0x0043_0000; // PicoMemBus の peripheral 窓 + BASE
+// PicoMemBus の peripheral 窓 (bit22 = 0x0040_0000) + UpdaterRegs の BASE (0x0003_0000)
+pub const UPDATER_PERIPH_BASE: usize = 0x0043_0000;
 
 // updaterRegs.veryl の ADDR_* - BASE と一致させる
 const REG_STATUS: usize = 0x00;   // bit0 = SD card detect (生レベル)
@@ -288,8 +295,8 @@ const REG_SD_TX: usize = 0x1C;
 const REG_SD_RX: usize = 0x20;
 const REG_FLASH_ADDRESS: usize = 0x30;
 const REG_FLASH_LENGTH: usize = 0x34;
-const REG_FLASH_COMMAND: usize = 0x38; // 1=ERASE_64K 2=PROGRAM_PAGE 3=READ 4=JEDEC
-const REG_FLASH_STATUS: usize = 0x3C;  // bit0 BUSY / bit1 ERROR
+const REG_FLASH_COMMAND: usize = 0x38;
+const REG_FLASH_STATUS: usize = 0x3C;
 const REG_FLASH_JEDEC_ID: usize = 0x40;
 const REG_RECONFIG_CONTROL: usize = 0x44; // bit0 ASSERT_LOW
 const REG_FLASH_BUFFER: usize = 0x300;    // 256 bytes (64 words)
@@ -387,8 +394,7 @@ impl BoardIo for UpdaterMmio {
     }
 
     fn sd_card_detect(&self) -> bool {
-        // 極性は基板依存 (この実装では Pmod の CD が挿入時 LOW の前提)。
-        // 実機で逆ならここを反転する。
+        // 極性は基板依存 (CD 挿入時 LOW 前提。逆なら反転)
         self.read(REG_STATUS) & STATUS_SD_CARD_DETECT == 0
     }
 
@@ -441,22 +447,26 @@ impl BoardIo for UpdaterMmio {
 
 `top.veryl` が作るもの: PicoRV32 (SV) + `rst_bridge` + `PicoMemBus` + `PicoTcm` +
 `UpdaterRegs` + デバッグ出力の配線。SD / Flash のピンは基板に合わせて接続する。
+Tang Primer 25K では Flash を CFG/MSPI ピン (E6=MCS_N, E7=CCLK, D6=MOSI, E5=MISO)、
+SD を Pmod MicroSD に接続する。
+ライブラリのモジュールは `ライブラリ名::モジュール名` で参照するが、`UpdaterRegs` は
+生成モジュール名 (`ライブラリ名_UpdaterRegs`) で参照する (この理由は生成 SV の module 名に依存する)。
 
 ```veryl
 module UpdaterTop (
-    clk       : input  clock           , /// システムクロック
-    rst       : input  reset_async_high, /// リセット
-    sd_cs_n   : output logic           , /// SD CS#
-    sd_sclk   : output logic           , /// SD SCK
-    sd_mosi   : output logic           , /// SD MOSI
-    sd_miso   : input  logic           , /// SD MISO
-    sd_cd     : input  logic           , /// SD card detect
-    flash_cs_n: output logic           , /// Flash CS#
-    flash_sclk: output logic           , /// Flash SCK
-    flash_mosi: output logic           , /// Flash MOSI
-    flash_miso: input  logic           , /// Flash MISO
-    state : output logic<4>,        /// firmware 状態表示コード (0x0-0xF)
-    reconfig_trig_n: output logic,      /// MultiBoot トリガ (外部で RECONFIG_N へ)
+    clk       : input  clock           ,
+    rst       : input  reset_async_high,
+    sd_cs_n   : output logic           ,
+    sd_sclk   : output logic           ,
+    sd_mosi   : output logic           ,
+    sd_miso   : input  logic           ,
+    sd_cd     : input  logic           ,
+    flash_cs_n: output logic           ,
+    flash_sclk: output logic           ,
+    flash_mosi: output logic           ,
+    flash_miso: input  logic           ,
+    state        : output logic<4>,  /// firmware 状態表示コード (0x0-0xF)
+    reconfig_trig_n: output logic,   /// MultiBoot トリガ (外部で RECONFIG_N へ)
 ) {
     var rst_delayed: reset_sync_high;
     inst reset_bridge: tang_primer_25k_sd_updater::rst_bridge #(
@@ -535,9 +545,9 @@ module UpdaterTop (
 
     var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
     inst regs: tang_primer_25k_sd_updater_UpdaterRegs #(
-        BASE          : 32'h03_0000,   // firmware の UPDATER_PERIPH_BASE の下位 22bit
-        FLASH_APP_BASE: 32'h0010_0000, // update_spec.toml の app_base と一致させる
-        FLASH_APP_END : 32'h0020_0000, // app_base + app_size
+        BASE          : 32'h03_0000,
+        FLASH_APP_BASE: 32'h0010_0000,
+        FLASH_APP_END : 32'h0020_0000,
     ) (
         i_clk: clk, i_rst: rst_delayed,
         i_mem_valid: peri_mem_valid, i_mem_addr: peri_mem_addr,
@@ -551,8 +561,8 @@ module UpdaterTop (
         o_reconfig_trig_n: reconfig_trig_n,
     );
 
-    // state ポートは CST がビット選択 (state[0..3]) するため logic<4>。
-    // enum → logic の変換は assign で暗黙に行われる。
+    // CST (Gowin のピン制約ファイル) が state[0..3] を個別ピンに割り当てるため logic<4>。
+    // enum → logic は assign で暗黙変換される。
     assign state = if trap ? tang_primer_25k_sd_updater::updater_pkg::UpdaterState::ERROR : state_enum;
 }
 ```
@@ -562,7 +572,7 @@ module UpdaterTop (
 | パラメータ | 値の決め方 |
 |---|---|
 | `PicoTcm.ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
-| `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成時の解決先は tool 依存なので、生成される `dependencies/tang_primer_25k_sd_updater/src/` を含む複数箇所に hex を配置して検証する |
+| `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する (veryl build が生成するディレクトリ) |
 | `UpdaterRegs.BASE` | peripheral 窓内のベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
 | `UpdaterRegs.FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
 
@@ -570,16 +580,12 @@ module UpdaterTop (
 
 ## 7. PicoRV32 の入手とパラメータ
 
-- ソース: `picorv32.v` (cliffordwolf/PicoRV32 の `picorv32.v` をプロジェクトに取り込む。
-  **リビジョンは固定する** — リビジョンによりポート構成が変わるため、このガイドの
-  接続例は固定リビジョン前提)
-- updater 用の推奨パラメータ (第 6 節の例):
-  - `DISABLE_CSR: 1` — CSR 命令を使わない前提
-  - `ENABLE_PCPI: 0` / `ENABLE_IRQ: 0` — 未使用機能は無効化 (デフォルトは 1 のため明示する)
-  - `PROGADDR_RESET: 32'h0000_0000` — TCM の先頭から起動
-  - `STACKADDR: 32'h0000_8000` — firmware の memory.x の STACK と一致
-  - `TWO_STAGE_SHIFT / TWO_CYCLE_ALU` — Fmax とのトレードオフ (タイミングに問題があれば調整)
-  - `ENABLE_MUL / ENABLE_DIV: 1` — firmware の除算・乗算に必要 (embedded-sdmmc が使う)
+- ソース: cliffordwolf/PicoRV32 の `picorv32.v` をプロジェクトに取り込む。
+  **リビジョンは固定して取り込む** (ポート構成はリビジョンで変わるため、接続例は
+  固定リビジョン前提。採用したリビジョンを記録しておくこと)
+- updater 用のパラメータは第 6 節の例の通り (CSR 不使用、`ENABLE_MUL/DIV` は firmware の
+  除算・乗算に必要)。調整が必要なのは `TWO_STAGE_SHIFT / TWO_CYCLE_ALU` のみ
+  (Fmax とのトレードオフ。タイミングに問題があれば調整)
 - `picorv32.v` は Gowin プロジェクトのファイルリストに**別途追加**する
   (`veryl build` の生成物には含まれない)
 
@@ -594,7 +600,7 @@ module UpdaterTop (
 rustup target add riscv32imc-unknown-none-elf
 cargo install cargo-binutils    # cargo objcopy 用
 rustup component add llvm-tools-preview
-# bin2mem はプロジェクトに合わせて用意 (cargo-binutils の objcopy -O verilog 等で代替可)
+# bin2mem は https://github.com/AkiyukiOkayasu/bin2mem (cargo install --git で導入)
 
 # ビルド
 cargo build --release
@@ -603,7 +609,6 @@ bin2mem updater.bin updater.hex   # TCM の $readmemh 用
 # updater.hex を RTL プロジェクトの参照先にコピー (PicoTcm の HEX_FILE の解決先)
 ```
 
-- TCM サイズ制約: `updater.bin` が `memory.x` の RAM+STACK 合計 (32KB) 以内であること
 - `cargo build` は `.cargo/config.toml` の target 設定により riscv32imc 向けにビルドされる
 
 ### 8.2 RTL ビルド
@@ -637,6 +642,10 @@ set_option -bg_programming userlogic
 - `multiboot_spi_flash_address` は update_spec.toml の `flash.app_base` と一致させる
 - `hotboot` / `MSPI_JUMP` は使わない
 
+初回書き込みは factory イメージ (`make-factory-image updater.bin app.bin FACTORY.bin`)
+を生成し、Gowin Programmer で Configuration Flash に書き込む。
+0x000000 に updater、0x100000 に app が配置されるので、以降の更新は SD カードで行える。
+
 ---
 
 ## 9. デバッグ / ブリングアップ
@@ -655,9 +664,7 @@ set_option -bg_programming userlogic
 | 0x5-0x7 | (未使用) | 0xE | FlashProgram / Verify / VerifyOk |
 | 0x8 | FatMounted / FileSearch | 0xF | エラー / trap |
 
-> 注: この表は enum のコード割り当て。実際に report されるのは
-> 0x1 → 0x2 → 0x3 → 0x4 → 0x8 → 0x9 → 0xA → (0xB / 0xC) → (0xD / 0xE) の順で、
-> 0x5-0x7 は割り当ての無いコード。
+> 注: 0x5-0x7 は割り当ての無いコード。
 
 - **skip パス**: 0xA → 0xD → 0xE (~数秒)
 - **書き込みパス**: 0xA → 0xB → 0xC → 0xE (数十秒)
@@ -673,27 +680,14 @@ set_option -bg_programming userlogic
 - `state[3:0]` と reconfig トリガ (`reconfig_trig_n` をそのまま観測) を観測する。
   SD / Flash SPI の複製出力は持たないため、SPI を観測したい場合は基板上の配線を直接
   プローブする
-- ブリングアップは LED よりロジアナ優先
 - skip 判定は flash の **0x03 READ** が連続する (書き込みの 0x02/0xD8 と区別すること)
 
 ### 9.4 よくある問題
 
 | 症状 | 原因 |
 |---|---|
-| updater が起動しない | RECONFIG_N のプルアップ不足 / A1 等のショート配線 |
+| updater が起動しない | RECONFIG_N のプルアップ不足 / A1 (reconfig_trig_n ピン) のショート配線 |
 | 起動が遅い (数十秒) | SD カードの応答遅延 (カード交換で改善) |
-| 更新が毎回走る | app slot の内容が SD パッケージと異なる (`program-flash` 等で .fs を書いた後など) |
+| 更新が毎回走る | app slot の内容が SD パッケージと異なる (Gowin のビットストリーム .fs を直接書いた後など) |
 | 0xF で止まる | header / target / payload / flash のエラー (コード表参照) |
-| 別製品のファームが入る | magic / target / layout のチェックが通る値を作成している (意図的な場合のみ) |
-
----
-
-## 10. 前提条件のまとめ
-
-- Tang Primer 25K (GW5A-25A) FPGA (MultiBoot + MSPI-as-GPIO)
-- PicoRV32 ソフトコア (CSR 不使用)
-- Veryl: `clock_type=posedge` / `reset_type=sync_high`
-- システムクロック 50 MHz (firmware の delay 換算)
-- updater firmware は TCM 32KB 以内
-- SD カード (FAT32)、固定ファイル名の更新ファイル
-- 再構成は MultiBoot + `RECONFIG_N` Low pulse (hotboot / MSPI_JUMP 不使用)
+| 別製品のファームが入る | magic / target / layout のチェックが通る値を作成している |
