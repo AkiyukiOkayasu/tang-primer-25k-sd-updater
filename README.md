@@ -66,7 +66,7 @@ loop {
 tang_primer_25k_sd_updater = { version = "0.1.0" }
 ```
 
-`top.veryl` でモジュールを配線し、パラメータを渡す (数値は FPGA_Oscillator での実例):
+`top.veryl` でモジュールを配線し、パラメータを渡す:
 
 ```veryl
 inst regs: tang_primer_25k_sd_updater_UpdaterRegs #(
@@ -80,11 +80,6 @@ inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
     HEX_FILE  : "updater.hex",
 ) ( ... );
 ```
-
-## 動作確認
-
-- [FPGA_Oscillator](https://github.com/AkiyukiOkayasu/FPGA_Oscillator) (Eurorack oscillator) で実機検証済み:
-  updater を 0x000000 / app を 0x100000 に配置した MultiBoot 構成、システムクロック 50 MHz
 
 ### ホストツール
 
