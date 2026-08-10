@@ -72,7 +72,6 @@ SD / Flash / reconfig ピンを配線するだけ:
 ```veryl
 var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
 inst core: tang_primer_25k_sd_updater::UpdaterCore #(
-    TCM_ADDR_WIDTH: 15,
     FLASH_APP_BASE: 32'h0010_0000,
     FLASH_APP_END : 32'h0020_0000,
 ) (

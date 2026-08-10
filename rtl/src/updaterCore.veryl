@@ -7,9 +7,16 @@
 ///
 /// `picorv32.v` は `rtl/vendor/picorv32/` に同梱 (ISC license)。利用プロジェクトの
 /// ファイルリストに追加すること (veryl build の生成物には含まれない)。
+///
+/// # 固定値
+///
+/// - TCM: 32KB (ADDR_WIDTH 15)。現状の updater firmware は約 20.3KB のため 32KB 必要
+/// - `rst_bridge.DELAY_CYCLES` = 1024 (20.48us @ 50MHz)。Gowin BSRAM が reset 後に
+///   使えるようになるまでの待ち。文書化されていない仕様のため余裕を持たせた値で、
+///   動作クロックが変わった場合の振る舞いは未定義とする
+/// - `UpdaterRegs.BASE` = 0x03_0000 (firmware の `UPDATER_PERIPH_BASE` の下位 22bit と一致)
+/// - TCM の hex ファイル名 = `"updater.hex"`
 pub module UpdaterCore #(
-    param DELAY_CYCLES  : u32 = 256          , /// リセット解除後の遅延サイクル数 (既定 256 = 5.12us @ 50MHz)
-    param TCM_ADDR_WIDTH: u32 = 15           , /// TCM アドレス幅 (32KB = 15bit)。firmware の memory.x と一致させる
     param FLASH_APP_BASE: u32 = 32'h0010_0000, /// app slot 先頭 (update_spec.toml の flash.app_base)
     param FLASH_APP_END : u32 = 32'h0020_0000, /// app slot 末尾 (app_base + app_size)
 ) (
@@ -35,7 +42,7 @@ pub module UpdaterCore #(
     // =========================================
     var rst_delayed: reset_sync_high;
     inst reset_bridge: rst_bridge #(
-        DELAY_CYCLES: DELAY_CYCLES,
+        DELAY_CYCLES: 1024,
     ) (
         clk     : i_clk      ,
         rst     : i_rst      ,
@@ -126,11 +133,11 @@ pub module UpdaterCore #(
     // =========================================
     // Memory bus (TCM / peripheral の振り分け)
     // =========================================
-    var tcm_mem_valid: logic                ;
-    var tcm_mem_addr : logic<TCM_ADDR_WIDTH>;
-    var tcm_mem_wdata: logic<32>            ;
-    var tcm_mem_wstrb: logic<4>             ;
-    var tcm_mem_rdata: logic<32>            ;
+    var tcm_mem_valid: logic    ;
+    var tcm_mem_addr : logic<15>;
+    var tcm_mem_wdata: logic<32>;
+    var tcm_mem_wstrb: logic<4> ;
+    var tcm_mem_rdata: logic<32>;
 
     var peri_mem_valid: logic    ;
     var peri_mem_addr : logic<22>;
@@ -139,7 +146,7 @@ pub module UpdaterCore #(
     var peri_mem_rdata: logic<32>;
 
     inst mem_bus: PicoMemBus #(
-        TCM_ADDR_WIDTH: TCM_ADDR_WIDTH,
+        TCM_ADDR_WIDTH: 15,
     ) (
         i_clk       : i_clk         ,
         i_rst       : rst_delayed   ,
@@ -165,8 +172,8 @@ pub module UpdaterCore #(
     // TCM (firmware 常駐メモリ)
     // =========================================
     inst tcm: PicoTcm #(
-        ADDR_WIDTH: TCM_ADDR_WIDTH,
-        HEX_FILE  : "updater.hex" ,
+        ADDR_WIDTH: 15           ,
+        HEX_FILE  : "updater.hex",
     ) (
         i_clk      : i_clk        ,
         i_mem_valid: tcm_mem_valid,

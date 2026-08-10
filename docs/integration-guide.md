@@ -463,7 +463,6 @@ module UpdaterTop (
 ) {
     var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
     inst core: tang_primer_25k_sd_updater::UpdaterCore #(
-        TCM_ADDR_WIDTH: 15,           // 32KB (firmware の memory.x と合わせる)
         FLASH_APP_BASE: 32'h0010_0000,
         FLASH_APP_END : 32'h0020_0000,
     ) (
@@ -485,13 +484,18 @@ module UpdaterTop (
 
 | パラメータ | 値の決め方 |
 | --- | --- |
-| `DELAY_CYCLES` | リセット解除後の遅延サイクル数。既定 256 = 5.12μs @ 50MHz (実機検証済み)。50MHz 以外のクロックで使う場合は実時間に合わせて調整する |
-| `TCM_ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
 | `FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
 
-`UpdaterCore` 内部の固定値: UpdaterRegs の `BASE` = 0x03_0000 (firmware の
-`UPDATER_PERIPH_BASE` の下位 22bit と一致)、TCM の hex ファイル名 = `"updater.hex"`
-(Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する)。
+`UpdaterCore` 内部の固定値:
+
+- TCM: 32KB (ADDR_WIDTH 15)。firmware の `memory.x` (RAM 28K + STACK 4K) と一致。
+  現状の updater firmware は約 20.3KB のため 32KB 必要
+- `rst_bridge.DELAY_CYCLES` = 1024 (20.48μs @ 50MHz)。Gowin BSRAM が reset 後に
+  使えるようになるまでの待ち。文書化されていない仕様のため余裕を持たせた値で、
+  動作クロックが変わった場合の振る舞いは未定義とする
+- `UpdaterRegs.BASE` = 0x03_0000 (firmware の `UPDATER_PERIPH_BASE` の下位 22bit と一致)
+- TCM の hex ファイル名 = `"updater.hex"` (Gowin 合成では
+  `dependencies/tang_primer_25k_sd_updater/src/` に配置する)
 
 `UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (第 9.1 節)。
 ピンへ出力する場合は top 側で `assign` により logic へ変換する (CST のビット選択用)。
