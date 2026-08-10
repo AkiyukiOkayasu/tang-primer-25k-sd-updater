@@ -10,18 +10,15 @@ use embedded_sdmmc::{BlockDevice, Mode, SdCard, TimeSource, Timestamp, VolumeIdx
 const SD_DUMMY_CLOCK_BYTES: usize = 256;
 const RECONFIG_PULSE_MS: u32 = 1;
 
+/// 更新フローの進行状態。`state_code()` で 4bit の状態表示コードに変換され、
+/// RTL の `o_state` 出力 (top の `state` ポート) に表示される。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum UpdateStatus {
     Idle,
     SdInit,
     SdPowerWait,
     SdDummyClock,
     SdCmd0,
-    SdCmd8,
-    SdAcmd41,
-    SdCmd58,
-    SdReadBlock,
     FatMounted,
     FileSearch,
     HeaderRead,
@@ -33,7 +30,6 @@ pub enum UpdateStatus {
     FlashVerifyOk,
     /// app slot の現内容がパッケージと一致し、書き込みをスキップした。
     AppSlotSkip,
-    NoCardOrNoFile,
     FatIoError,
     FileNotFound,
     FatFormatError,
@@ -41,21 +37,17 @@ pub enum UpdateStatus {
     TargetError,
     PayloadError,
     FlashError,
-    Error,
 }
 
 impl UpdateStatus {
-    fn debug_code(self) -> u32 {
+    fn state_code(self) -> u32 {
         match self {
             UpdateStatus::Idle => 0x0,
             UpdateStatus::SdInit => 0x1,
             UpdateStatus::SdPowerWait => 0x2,
             UpdateStatus::SdDummyClock => 0x3,
             UpdateStatus::SdCmd0 => 0x4,
-            UpdateStatus::SdCmd8 => 0x5,
-            UpdateStatus::SdAcmd41 => 0x6,
-            UpdateStatus::SdCmd58 => 0x7,
-            UpdateStatus::SdReadBlock | UpdateStatus::FatMounted | UpdateStatus::FileSearch => 0x8,
+            UpdateStatus::FatMounted | UpdateStatus::FileSearch => 0x8,
             UpdateStatus::HeaderRead => 0x9,
             UpdateStatus::HeaderValid => 0xA,
             UpdateStatus::PayloadVerify => 0xB,
@@ -65,15 +57,13 @@ impl UpdateStatus {
             UpdateStatus::FlashProgram
             | UpdateStatus::FlashVerify
             | UpdateStatus::FlashVerifyOk => 0xE,
-            UpdateStatus::NoCardOrNoFile
-            | UpdateStatus::FatIoError
+            UpdateStatus::FatIoError
             | UpdateStatus::FileNotFound
             | UpdateStatus::FatFormatError
             | UpdateStatus::HeaderError
             | UpdateStatus::TargetError
             | UpdateStatus::PayloadError
-            | UpdateStatus::FlashError
-            | UpdateStatus::Error => 0xF,
+            | UpdateStatus::FlashError => 0xF,
         }
     }
 }
@@ -124,8 +114,6 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     /// reconfigして移行する。app slot が空/破損なら config 失敗で次回電源投入時に
     /// 先頭 updater へ戻る (Golden fallback 未使用のため)。
     pub fn poll_once(&mut self) -> UpdateStatus {
-        let _ = self.io.status();
-
         if let Some(status) = self.terminal_status {
             return status;
         }
@@ -135,7 +123,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
             if updated {
                 UpdateStatus::FlashVerifyOk
             } else {
-                UpdateStatus::NoCardOrNoFile
+                UpdateStatus::Idle
             }
         });
         self.io.sd_set_cs(false);
@@ -143,10 +131,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
 
         if matches!(
             status,
-            UpdateStatus::NoCardOrNoFile
-                | UpdateStatus::FatIoError
-                | UpdateStatus::FileNotFound
-                | UpdateStatus::FatFormatError
+            UpdateStatus::FatIoError | UpdateStatus::FileNotFound | UpdateStatus::FatFormatError
         ) {
             self.trigger_app_reconfig();
         }
@@ -155,7 +140,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     }
 
     pub fn report_status(&mut self, status: UpdateStatus) {
-        self.io.set_debug_state(status.debug_code());
+        self.io.set_state(status.state_code());
     }
 
     fn run_update(&mut self) -> Result<bool, UpdateError> {
@@ -243,7 +228,6 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         sdcard.num_blocks().map_err(|_| UpdateError::SdIo)?;
         sdcard.spi(|spi| {
             spi.set_clock_div(SD_RUN_HALF_PERIOD_CYCLES);
-            spi.set_command_trace(false);
         });
         Ok(VolumeManager::new(sdcard, NullTime))
     }
@@ -490,7 +474,6 @@ mod tests {
             payload_offset: 0,
             payload_size: payload.len() as u32,
             payload_crc32: crc32::checksum(payload),
-            payload_sha256: [0; 32],
         }
     }
 

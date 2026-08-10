@@ -67,7 +67,7 @@
 6. `trigger_app_reconfig()` — `reconfig_trig_n` を 1ms Low pulse → MultiBoot で app 起動
 
 - **検証・書き込みエラー** (header / target / payload / flash) 時は updater に留まり、
-  `UpdateStatus` (dbg_state) で状態を報告する
+  `UpdateStatus` (state 表示) で状態を報告する
 - **SD 無し / ファイル無し / カード読めず** はエラー扱いにせず、そのまま reconfig して
   app へ移行する (skip と同じ経路)
 
@@ -89,7 +89,7 @@ header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 | 0x1C | 4 | payload_offset | payload のオフセット (= header_size) |
 | 0x20 | 4 | payload_size | payload のサイズ |
 | 0x24 | 4 | payload_crc32 | payload の CRC32 |
-| 0x28 | 32 | payload_sha256 | payload の SHA256 (**現在は未使用**、形式互換のため予約) |
+| 0x28 | 32 | reserved | 旧 payload_sha256 フィールド (ゼロ埋め) |
 
 値の基準は常にプロジェクトの `update_spec.conf`。
 
@@ -280,7 +280,7 @@ pub const UPDATER_PERIPH_BASE: usize = 0x0043_0000; // PicoMemBus の peripheral
 
 // updaterRegs.veryl の ADDR_* - BASE と一致させる
 const REG_STATUS: usize = 0x00;   // bit0 = SD card detect (生レベル)
-const REG_DEBUG_STATE: usize = 0x0C;
+const REG_STATE: usize = 0x0C;
 const REG_SD_CONTROL: usize = 0x10;  // bit0 START / bit1 CS_ASSERT
 const REG_SD_STATUS: usize = 0x14;   // bit0 BUSY / bit1 ERROR
 const REG_SD_CLK_DIV: usize = 0x18;
@@ -366,8 +366,8 @@ impl BoardIo for UpdaterMmio {
         self.read(REG_STATUS)
     }
 
-    fn set_debug_state(&mut self, state: u32) {
-        self.write(REG_DEBUG_STATE, state);
+    fn set_state(&mut self, state: u32) {
+        self.write(REG_STATE, state);
     }
 
     fn sd_set_cs(&mut self, asserted: bool) {
@@ -455,7 +455,7 @@ module UpdaterTop (
     flash_sclk: output logic           , /// Flash SCK
     flash_mosi: output logic           , /// Flash MOSI
     flash_miso: input  logic           , /// Flash MISO
-    dbg_state : output logic<4>,        /// firmware bring-up state
+    state : output logic<4>,        /// firmware 状態表示コード (0x0-0xF)
     reconfig_trig_n: output logic,      /// MultiBoot トリガ (外部で RECONFIG_N へ)
 ) {
     var rst_delayed: reset_sync_high;
@@ -533,7 +533,7 @@ module UpdaterTop (
         o_mem_rdata: tcm_mem_rdata,
     );
 
-    var debug_state: logic<4>;
+    var state_out: logic<4>;
     inst regs: fpga_sd_updater::UpdaterRegs #(
         BASE          : 32'h03_0000,   // firmware の UPDATER_PERIPH_BASE の下位 22bit
         FLASH_APP_BASE: 32'h0010_0000, // update_spec.conf の app_base と一致させる
@@ -543,7 +543,7 @@ module UpdaterTop (
         i_mem_valid: peri_mem_valid, i_mem_addr: peri_mem_addr,
         i_mem_wdata: peri_mem_wdata, i_mem_wstrb: peri_mem_wstrb,
         o_mem_rdata: peri_mem_rdata,
-        o_led_pattern: _, o_debug_state: debug_state,
+        o_state: state_out,
         o_sd_cs_n: sd_cs_n, o_sd_sclk: sd_sclk, o_sd_mosi: sd_mosi,
         i_sd_miso: sd_miso, i_sd_cd: sd_cd,
         o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
@@ -551,7 +551,7 @@ module UpdaterTop (
         o_reconfig_trig_n: reconfig_trig_n,
     );
 
-    assign dbg_state = if trap ? 4'hF : debug_state;
+    assign state = if trap ? 4'hF : state_out;
 }
 ```
 
@@ -639,9 +639,9 @@ set_option -bg_programming userlogic
 
 ## 9. デバッグ / ブリングアップ
 
-### 9.1 dbg_state コード表
+### 9.1 state コード表
 
-`dbg_state[3:0]` (4bit) が firmware の進行状態を示す。trap 時は 0xF。
+`state[3:0]` (4bit) が firmware の進行状態を示す。trap 時は 0xF。
 
 | 値 | 意味 | 値 | 意味 |
 |---|---|---|---|
@@ -650,14 +650,12 @@ set_option -bg_programming userlogic
 | 0x2 | SdPowerWait | 0xB | PayloadVerify |
 | 0x3 | SdDummyClock | 0xC | FlashJedec |
 | 0x4 | SdCmd0 | 0xD | **AppSlotSkip (書き込みスキップ)** |
-| 0x5 | SdCmd8 | 0xE | FlashProgram / Verify / VerifyOk |
-| 0x6 | SdAcmd41 | 0xF | エラー / trap |
-| 0x7 | SdCmd58 | | |
-| 0x8 | FatMounted / FileSearch | | |
+| 0x5-0x7 | (未使用) | 0xE | FlashProgram / Verify / VerifyOk |
+| 0x8 | FatMounted / FileSearch | 0xF | エラー / trap |
 
-> 注: この表は enum のコード割り当て (未使用コードを含む)。実際に report されるのは
+> 注: この表は enum のコード割り当て。実際に report されるのは
 > 0x1 → 0x2 → 0x3 → 0x4 → 0x8 → 0x9 → 0xA → (0xB / 0xC) → (0xD / 0xE) の順で、
-> 0x5 / 0x6 / 0x7 (SD コマンド個別) は観測されない。
+> 0x5-0x7 は割り当ての無いコード。
 
 - **skip パス**: 0xA → 0xD → 0xE (~数秒)
 - **書き込みパス**: 0xA → 0xB → 0xC → 0xE (数十秒)
@@ -670,7 +668,7 @@ set_option -bg_programming userlogic
 
 ### 9.3 ロジアナ観測
 
-- `dbg_state[3:0]` と reconfig トリガ (`reconfig_trig_n` をそのまま観測) を観測する。
+- `state[3:0]` と reconfig トリガ (`reconfig_trig_n` をそのまま観測) を観測する。
   SD / Flash SPI の複製出力は持たないため、SPI を観測したい場合は基板上の配線を直接
   プローブする
 - ブリングアップは LED よりロジアナ優先

@@ -58,7 +58,6 @@ fn read_cycle_counter() -> u32 {
 
 pub struct MmioSdSpi<'a, Io: BoardIo> {
     io: *mut Io,
-    command_trace: bool,
     _marker: PhantomData<&'a mut Io>,
 }
 
@@ -67,7 +66,6 @@ impl<'a, Io: BoardIo> MmioSdSpi<'a, Io> {
     pub fn new(io: &'a mut Io) -> Self {
         Self {
             io,
-            command_trace: true,
             _marker: PhantomData,
         }
     }
@@ -81,17 +79,12 @@ impl<'a, Io: BoardIo> MmioSdSpi<'a, Io> {
     pub unsafe fn from_raw(io: *mut Io) -> Self {
         Self {
             io,
-            command_trace: true,
             _marker: PhantomData,
         }
     }
 
     pub fn set_clock_div(&mut self, half_period_cycles: u8) {
         self.io_mut().sd_set_clock_div(half_period_cycles);
-    }
-
-    pub fn set_command_trace(&mut self, enabled: bool) {
-        self.command_trace = enabled;
     }
 
     pub fn clock_idle_bytes(&mut self, count: usize) -> Result<(), IoError> {
@@ -134,7 +127,6 @@ impl<Io: BoardIo> MmioSdSpi<'_, Io> {
                 }
                 Operation::Write(buffer) => {
                     for byte in buffer.iter() {
-                        self.observe_command_byte(*byte);
                         let _ = self.io_mut().sd_transfer_byte(*byte)?;
                     }
                 }
@@ -142,7 +134,6 @@ impl<Io: BoardIo> MmioSdSpi<'_, Io> {
                     let transfer_len = core::cmp::max(read.len(), write.len());
                     for index in 0..transfer_len {
                         let tx = write.get(index).copied().unwrap_or(0xFF);
-                        self.observe_command_byte(tx);
                         let rx = self.io_mut().sd_transfer_byte(tx)?;
                         if let Some(dst) = read.get_mut(index) {
                             *dst = rx;
@@ -151,7 +142,6 @@ impl<Io: BoardIo> MmioSdSpi<'_, Io> {
                 }
                 Operation::TransferInPlace(buffer) => {
                     for byte in buffer.iter_mut() {
-                        self.observe_command_byte(*byte);
                         *byte = self.io_mut().sd_transfer_byte(*byte)?;
                     }
                 }
@@ -162,26 +152,5 @@ impl<Io: BoardIo> MmioSdSpi<'_, Io> {
             }
         }
         Ok(())
-    }
-
-    fn observe_command_byte(&mut self, byte: u8) {
-        if !self.command_trace {
-            return;
-        }
-        if byte & 0xC0 != 0x40 {
-            return;
-        }
-
-        let state = match byte & 0x3F {
-            0 => Some(0x4),
-            8 => Some(0x5),
-            55 | 41 => Some(0x6),
-            58 => Some(0x7),
-            17 | 18 => Some(0x8),
-            _ => None,
-        };
-        if let Some(state) = state {
-            self.io_mut().set_debug_state(state);
-        }
     }
 }

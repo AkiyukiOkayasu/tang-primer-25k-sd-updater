@@ -5,7 +5,7 @@ use crate::{BoardIo, IoError};
 #[derive(Debug, Clone)]
 pub struct FakeMmio {
     pub status: u32,
-    pub debug_state: u32,
+    pub state: u32,
     pub sd_cs_asserted: bool,
     pub sd_clock_div: u8,
     pub sd_tx: std::vec::Vec<u8>,
@@ -29,7 +29,7 @@ impl Default for FakeMmio {
     fn default() -> Self {
         Self {
             status: 0,
-            debug_state: 0,
+            state: 0,
             sd_cs_asserted: false,
             sd_clock_div: 64,
             sd_tx: std::vec::Vec::new(),
@@ -54,8 +54,8 @@ impl BoardIo for FakeMmio {
         self.status
     }
 
-    fn set_debug_state(&mut self, state: u32) {
-        self.debug_state = state;
+    fn set_state(&mut self, state: u32) {
+        self.state = state;
     }
 
     fn sd_set_cs(&mut self, asserted: bool) {
@@ -200,7 +200,6 @@ mod tests {
         assert!(mmio.sd_cs_asserted);
         assert_eq!(&mmio.sd_tx[..6], &[0x40, 0, 0, 0, 0, 0x95]);
         assert_eq!(&mmio.sd_tx[6..8], &[0xFF, 0xFF]);
-        assert_eq!(mmio.debug_state, 0x4);
     }
 
     #[test]

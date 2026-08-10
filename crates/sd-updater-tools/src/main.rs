@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use sd_updater::{crc32, sha256};
+use sd_updater::crc32;
 use sd_updater_build::Spec;
 
 fn main() {
@@ -136,7 +136,6 @@ fn build_update_package(
     }
 
     let payload_crc32 = crc32::checksum(&payload);
-    let payload_sha256 = sha256::digest(&payload);
 
     let mut header = vec![0u8; spec.header_size];
     header[0..8].copy_from_slice(&spec.magic);
@@ -148,7 +147,7 @@ fn build_update_package(
     write_u32_le(&mut header, 0x1C, spec.header_size as u32);
     write_u32_le(&mut header, 0x20, payload.len() as u32);
     write_u32_le(&mut header, 0x24, payload_crc32);
-    header[0x28..0x48].copy_from_slice(&payload_sha256);
+    // 0x28..0x48 は旧 SHA256 フィールドの予約領域 (ゼロ埋め)
 
     let mut out = header;
     out.extend_from_slice(&payload);
@@ -295,10 +294,7 @@ flash.layout_id=0x46504f31
             read_u32_le(&out, 0x24),
             crc32::checksum(&[0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03])
         );
-        assert_eq!(
-            &out[0x28..0x48],
-            &sha256::digest(&[0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03])
-        );
+        assert_eq!(&out[0x28..0x48], &[0u8; 32]); // 旧 SHA256 フィールドは予約 (ゼロ埋め)
     }
 
     #[test]

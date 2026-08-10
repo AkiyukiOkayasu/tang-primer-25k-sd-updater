@@ -11,7 +11,6 @@ pub mod board;
 pub mod crc32;
 pub mod package;
 pub mod sd_spi;
-pub mod sha256;
 pub mod updater;
 pub mod w25q64;
 

@@ -10,8 +10,7 @@
 ///
 /// ```text
 /// 0x00 STATUS            (bit0 = SD card detect 1: 挿入 / 0: 未挿入, read-only)
-/// 0x08 LED
-/// 0x0C DEBUG_STATE
+/// 0x0C STATE             (firmware 状態表示コード 0x0-0xF)
 /// 0x10 SD_CONTROL        (START / CS_ASSERT)
 /// 0x14 SD_STATUS         (BUSY / ERROR)
 /// 0x18 SD_CLK_DIV
@@ -52,8 +51,7 @@ pub module UpdaterRegs #(
     i_mem_wstrb: input  logic<4> ,
     o_mem_rdata: output logic<32>,
 
-    o_led_pattern: output logic<32>,
-    o_debug_state: output logic<4> ,
+    o_state: output logic<4>, /// firmware 状態表示コード (0x0-0xF)
 
     o_sd_cs_n: output logic,
     o_sd_sclk: output logic,
@@ -69,8 +67,7 @@ pub module UpdaterRegs #(
     o_reconfig_trig_n: output logic,
 ) {
     const ADDR_STATUS          : logic<22> = BASE + 22'h0000;
-    const ADDR_LED             : logic<22> = BASE + 22'h0008;
-    const ADDR_DEBUG_STATE     : logic<22> = BASE + 22'h000C;
+    const ADDR_STATE           : logic<22> = BASE + 22'h000C;
     const ADDR_SD_CONTROL      : logic<22> = BASE + 22'h0010;
     const ADDR_SD_STATUS       : logic<22> = BASE + 22'h0014;
     const ADDR_SD_CLK_DIV      : logic<22> = BASE + 22'h0018;
@@ -131,8 +128,7 @@ pub module UpdaterRegs #(
     let flash_buffer_offset: logic<22> = i_mem_addr - ADDR_FLASH_BUFFER;
     let flash_buffer_index : logic<6>  = flash_buffer_offset[7:2];
 
-    var reg_led_pattern  : logic<32>     ;
-    var reg_debug_state  : logic<4>      ;
+    var reg_state        : logic<4>      ;
     var reg_sd_control   : logic<32>     ;
     var reg_sd_status    : logic<32>     ;
     var reg_sd_clk_div   : logic<32>     ;
@@ -154,8 +150,7 @@ pub module UpdaterRegs #(
     let flash_range_ok : logic     = reg_flash_address >= FLASH_APP_BASE && flash_range_end <= FLASH_APP_END;
     let flash_page_ok  : logic     = flash_page_end <= FLASH_PAGE_SIZE;
 
-    assign o_led_pattern     = reg_led_pattern;
-    assign o_debug_state     = reg_debug_state;
+    assign o_state           = reg_state;
     assign o_mem_rdata       = read_data_reg;
     assign o_reconfig_trig_n = if (reg_reconfig_ctrl & RECONFIG_CONTROL_ASSERT_LOW) != 0 ? 1'b0 : 1'b1;
 
@@ -282,8 +277,7 @@ pub module UpdaterRegs #(
 
     always_ff (i_clk, i_rst) {
         if_reset {
-            reg_led_pattern   = 0;
-            reg_debug_state   = 0;
+            reg_state         = 0;
             reg_sd_control    = 0;
             reg_sd_clk_div    = 32'd64;
             reg_sd_tx         = 32'h0000_00FF;
@@ -295,9 +289,8 @@ pub module UpdaterRegs #(
         } else {
             if i_mem_valid && is_write {
                 case i_mem_addr {
-                    ADDR_LED        : reg_led_pattern = i_mem_wdata;
-                    ADDR_DEBUG_STATE: reg_debug_state = i_mem_wdata[3:0];
-                    ADDR_SD_CONTROL : {
+                    ADDR_STATE     : reg_state = i_mem_wdata[3:0];
+                    ADDR_SD_CONTROL: {
                         reg_sd_control = if (i_mem_wdata & SD_CONTROL_CS_ASSERT) != 0 ? SD_CONTROL_CS_ASSERT : 0;
                     }
                     ADDR_SD_CLK_DIV      : reg_sd_clk_div    = i_mem_wdata;
@@ -322,8 +315,7 @@ pub module UpdaterRegs #(
             if i_mem_valid && !is_write {
                 case i_mem_addr {
                     ADDR_STATUS          : read_data_reg = {31'd0, i_sd_cd};
-                    ADDR_LED             : read_data_reg = reg_led_pattern;
-                    ADDR_DEBUG_STATE     : read_data_reg = {28'd0, reg_debug_state};
+                    ADDR_STATE           : read_data_reg = {28'd0, reg_state};
                     ADDR_SD_CONTROL      : read_data_reg = reg_sd_control;
                     ADDR_SD_STATUS       : read_data_reg = reg_sd_status;
                     ADDR_SD_CLK_DIV      : read_data_reg = reg_sd_clk_div;

@@ -23,7 +23,6 @@ pub struct UpdateHeader {
     pub payload_offset: u32,
     pub payload_size: u32,
     pub payload_crc32: u32,
-    pub payload_sha256: [u8; 32],
 }
 
 impl UpdateHeader {
@@ -46,7 +45,6 @@ impl UpdateHeader {
             payload_offset: read_u32_le(bytes, 0x1C),
             payload_size: read_u32_le(bytes, 0x20),
             payload_crc32: read_u32_le(bytes, 0x24),
-            payload_sha256: read_array_32(bytes, 0x28),
         };
 
         header.validate(file_size, spec)?;
@@ -83,12 +81,6 @@ const fn read_u32_le(bytes: &[u8], offset: usize) -> u32 {
         | ((bytes[offset + 1] as u32) << 8)
         | ((bytes[offset + 2] as u32) << 16)
         | ((bytes[offset + 3] as u32) << 24)
-}
-
-fn read_array_32(bytes: &[u8], offset: usize) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes[offset..offset + 32]);
-    out
 }
 
 #[cfg(test)]

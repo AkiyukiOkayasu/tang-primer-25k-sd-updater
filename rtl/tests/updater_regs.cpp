@@ -12,8 +12,7 @@ double sc_time_stamp() { return static_cast<double>(main_time); }
 
 static constexpr uint32_t BASE = 0x03'0000;
 static constexpr uint32_t REG_STATUS = BASE + 0x0000;
-static constexpr uint32_t REG_LED = BASE + 0x0008;
-static constexpr uint32_t REG_DEBUG_STATE = BASE + 0x000c;
+static constexpr uint32_t REG_STATE = BASE + 0x000c;
 static constexpr uint32_t REG_SD_CONTROL = BASE + 0x0010;
 static constexpr uint32_t REG_SD_STATUS = BASE + 0x0014;
 static constexpr uint32_t REG_SD_CLK_DIV = BASE + 0x0018;
@@ -318,15 +317,11 @@ int main(int argc, char **argv) {
     ok &= expect_eq("sd rx reset", read_reg(top, REG_SD_RX), 0);
     ok &= expect_eq("flash status reset", read_reg(top, REG_FLASH_STATUS), 0);
     ok &= expect_eq("jedec id reset", read_reg(top, REG_FLASH_JEDEC_ID), 0);
-    ok &= expect_eq("debug state reset", top.o_debug_state, 0);
+    ok &= expect_eq("state reset", top.o_state, 0);
 
-    write_reg(top, REG_LED, 0x0000'000f);
-    ok &= expect_eq("led register", read_reg(top, REG_LED), 0x0000'000f);
-    ok &= expect_eq("led output", top.o_led_pattern, 0x0000'000f);
-
-    write_reg(top, REG_DEBUG_STATE, 0x0000'000f);
-    ok &= expect_eq("debug state register", read_reg(top, REG_DEBUG_STATE), 0x0000'000f);
-    ok &= expect_eq("debug state output", top.o_debug_state, 0x0000'000f);
+    write_reg(top, REG_STATE, 0x0000'000f);
+    ok &= expect_eq("state register", read_reg(top, REG_STATE), 0x0000'000f);
+    ok &= expect_eq("state output", top.o_state, 0x0000'000f);
 
     write_reg(top, REG_SD_CLK_DIV, 2);
     write_reg(top, REG_SD_CONTROL, 0x0000'0002);
