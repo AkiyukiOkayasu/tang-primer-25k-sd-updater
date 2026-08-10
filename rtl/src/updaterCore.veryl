@@ -8,7 +8,8 @@
 /// `picorv32.v` は `rtl/vendor/picorv32/` に同梱 (ISC license)。利用プロジェクトの
 /// ファイルリストに追加すること (veryl build の生成物には含まれない)。
 pub module UpdaterCore #(
-    param TCM_ADDR_WIDTH: u32 = 32'h000F     , /// TCM アドレス幅 (32KB = 15bit)。firmware の memory.x と一致させる
+    param DELAY_CYCLES  : u32 = 256          , /// リセット解除後の遅延サイクル数 (既定 256 = 5.12us @ 50MHz)
+    param TCM_ADDR_WIDTH: u32 = 15           , /// TCM アドレス幅 (32KB = 15bit)。firmware の memory.x と一致させる
     param FLASH_APP_BASE: u32 = 32'h0010_0000, /// app slot 先頭 (update_spec.toml の flash.app_base)
     param FLASH_APP_END : u32 = 32'h0020_0000, /// app slot 末尾 (app_base + app_size)
 ) (
@@ -34,7 +35,7 @@ pub module UpdaterCore #(
     // =========================================
     var rst_delayed: reset_sync_high;
     inst reset_bridge: rst_bridge #(
-        DELAY_CYCLES: 256,
+        DELAY_CYCLES: DELAY_CYCLES,
     ) (
         clk     : i_clk      ,
         rst     : i_rst      ,

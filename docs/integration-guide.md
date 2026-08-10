@@ -485,13 +485,13 @@ module UpdaterTop (
 
 | パラメータ | 値の決め方 |
 | --- | --- |
+| `DELAY_CYCLES` | リセット解除後の遅延サイクル数。既定 256 = 5.12μs @ 50MHz (実機検証済み)。50MHz 以外のクロックで使う場合は実時間に合わせて調整する |
 | `TCM_ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
 | `FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
 
 `UpdaterCore` 内部の固定値: UpdaterRegs の `BASE` = 0x03_0000 (firmware の
 `UPDATER_PERIPH_BASE` の下位 22bit と一致)、TCM の hex ファイル名 = `"updater.hex"`
-(Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する)、
-rst_bridge の `DELAY_CYCLES` = 256。
+(Gowin 合成では `dependencies/tang_primer_25k_sd_updater/src/` に配置する)。
 
 `UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (第 9.1 節)。
 ピンへ出力する場合は top 側で `assign` により logic へ変換する (CST のビット選択用)。
