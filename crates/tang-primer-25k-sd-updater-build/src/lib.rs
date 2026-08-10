@@ -1,33 +1,15 @@
-//! `update_spec.conf` からプロジェクト側の Rust 定数を生成する build 補助ライブラリ。
+//! `update_spec.toml` からプロジェクト側の Rust 定数を生成する build 補助ライブラリ。
 //!
 //! プロジェクトの `build.rs` から `generate()` を呼ぶ。ホストツール
 //! (`tang-primer-25k-sd-updater-tools`) は `load()` で同じ仕様を読み、package / factory image を生成する。
 //! パース・検証のロジックはこの crate が唯一の実装であり、他言語実装との同期は不要。
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-const REQUIRED_KEYS: &[&str] = &[
-    "package.file_name",
-    "package.magic_hex",
-    "package.header_size",
-    "package.format_version",
-    "package.target_hw_id",
-    "package.target_fpga_id",
-    "flash.flash_size_bytes",
-    "flash.updater_base",
-    "flash.updater_size",
-    "flash.app_base",
-    "flash.app_size",
-    "flash.metadata_base",
-    "flash.metadata_size",
-    "flash.golden_updater_base_candidate",
-    "flash.golden_updater_size_candidate",
-    "flash.layout_id",
-];
+use serde::Deserialize;
 
-/// `update_spec.conf` の内容 (ホスト側、`String` 所有)。
+/// `update_spec.toml` の内容 (ホスト側、`String` 所有)。
 ///
 /// firmware 側の生成定数 [`tang_primer_25k_sd_updater::UpdateSpec`] とは別物。こちらは
 /// `tang-primer-25k-sd-updater-tools` がファイルから直接読み込むために使う。
@@ -51,141 +33,107 @@ pub struct Spec {
     pub golden_updater_size_candidate: u32,
 }
 
-/// `update_spec.conf` の内容文字列を検証して [`Spec`] を返す。`path` はエラーメッセージ用。
-pub fn parse(spec: &str, path: &str) -> Result<Spec, String> {
-    let values = parse_spec(spec, path)?;
-    build_spec(&values, path)
+/// `update_spec.toml` の生の構造。TOML の型検証 (u32 等) は serde が行う。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSpec {
+    /// SD から読む固定ファイル名 (FAT32 8.3: 8 文字以内 + 拡張子 3 文字以内)。
+    file_name: String,
+    /// header 先頭 8 byte の 16 進数 (16 文字)。
+    magic_hex: String,
+    header_size: u32,
+    format_version: u32,
+    target_hw_id: u32,
+    target_fpga_id: u32,
+    flash: RawFlash,
 }
 
-/// `update_spec.conf` を読み、検証して [`Spec`] を返す。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFlash {
+    flash_size_bytes: u32,
+    updater_base: u32,
+    updater_size: u32,
+    app_base: u32,
+    app_size: u32,
+    metadata_base: u32,
+    metadata_size: u32,
+    golden_updater_base_candidate: u32,
+    golden_updater_size_candidate: u32,
+    layout_id: u32,
+}
+
+/// `update_spec.toml` の内容文字列を検証して [`Spec`] を返す。`path` はエラーメッセージ用。
+pub fn parse(spec: &str, path: &str) -> Result<Spec, String> {
+    let raw: RawSpec = toml::from_str(spec).map_err(|error| format!("{path}: {error}"))?;
+
+    let magic = parse_magic(&raw.magic_hex).map_err(|error| format!("{path}: {error}"))?;
+    if !raw
+        .file_name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
+    {
+        return Err(format!("{path}: invalid file_name \"{}\"", raw.file_name));
+    }
+
+    Ok(Spec {
+        file_name: raw.file_name,
+        magic,
+        header_size: raw.header_size as usize,
+        format_version: raw.format_version,
+        target_hw_id: raw.target_hw_id,
+        target_fpga_id: raw.target_fpga_id,
+        flash_layout_id: raw.flash.layout_id,
+        flash_size_bytes: raw.flash.flash_size_bytes,
+        updater_base: raw.flash.updater_base,
+        updater_size: raw.flash.updater_size,
+        app_base: raw.flash.app_base,
+        app_size: raw.flash.app_size,
+        metadata_base: raw.flash.metadata_base,
+        metadata_size: raw.flash.metadata_size,
+        golden_updater_base_candidate: raw.flash.golden_updater_base_candidate,
+        golden_updater_size_candidate: raw.flash.golden_updater_size_candidate,
+    })
+}
+
+/// `update_spec.toml` を読み、検証して [`Spec`] を返す。
 pub fn load(spec_path: &str) -> Result<Spec, String> {
     let spec = fs::read_to_string(spec_path)
-        .map_err(|error| format!("{spec_path} を読み込めない: {error}"))?;
+        .map_err(|error| format!("{spec_path}: failed to read: {error}"))?;
     parse(&spec, spec_path)
 }
 
-/// `update_spec.conf` を読み、`$OUT_DIR/update_spec.rs` に `SPEC` 定数を生成する。
+/// `update_spec.toml` を読み、`$OUT_DIR/update_spec.rs` に `SPEC` 定数を生成する。
 ///
 /// 生成コードは `tang_primer_25k_sd_updater::UpdateSpec` を参照するため、依存 crate の名前は
-/// `sd_updater` にする必要がある。`cargo:rerun-if-changed=update_spec.conf` の emit は
+/// `tang_primer_25k_sd_updater` にする必要がある。`cargo:rerun-if-changed=update_spec.toml` の emit は
 /// build-dependency の stdout が転送されないため、呼び出し側の build.rs で行うこと。
 pub fn generate(spec_path: &str) -> Result<(), String> {
     let spec = load(spec_path)?;
-    let generated = generate_rust(&spec, spec_path)?;
+    let generated = generate_rust(&spec)?;
 
-    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR が未設定")?);
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR is not set")?);
     fs::write(out_dir.join("update_spec.rs"), generated)
-        .map_err(|error| format!("生成した仕様を出力できない: {error}"))?;
+        .map_err(|error| format!("failed to write generated spec: {error}"))?;
     Ok(())
 }
 
-fn parse_spec(spec: &str, path: &str) -> Result<BTreeMap<String, String>, String> {
-    let mut values = BTreeMap::new();
-
-    for (line_number, line) in spec.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        let (key, value) = line
-            .split_once('=')
-            .ok_or_else(|| format!("{path}:{}: '=' が必要", line_number + 1))?;
-        let key = key.trim();
-        let value = value.trim();
-        if key.is_empty() || value.is_empty() {
-            return Err(format!(
-                "{path}:{}: 空の key/value は使用できない",
-                line_number + 1
-            ));
-        }
-        if values.insert(key.to_owned(), value.to_owned()).is_some() {
-            return Err(format!("{path}:{}: key が重複: {key}", line_number + 1));
-        }
-    }
-
-    for key in REQUIRED_KEYS {
-        if !values.contains_key(*key) {
-            return Err(format!("{path}: 必須 key がない: {key}"));
-        }
-    }
-    if values.len() != REQUIRED_KEYS.len() {
-        return Err(format!("{path}: 未知の key がある"));
-    }
-    Ok(values)
-}
-
-fn value<'a>(
-    values: &'a BTreeMap<String, String>,
-    key: &str,
-    path: &str,
-) -> Result<&'a str, String> {
-    values
-        .get(key)
-        .map(String::as_str)
-        .ok_or_else(|| format!("{path}: 必須 key がない: {key}"))
-}
-
-fn parse_u32(values: &BTreeMap<String, String>, key: &str, path: &str) -> Result<u32, String> {
-    let value = value(values, key, path)?;
-    value
-        .strip_prefix("0x")
-        .map_or_else(|| value.parse(), |hex| u32::from_str_radix(hex, 16))
-        .map_err(|_| format!("{path}: {key} は u32 ではない: {value}"))
-}
-
-fn parse_magic(values: &BTreeMap<String, String>, path: &str) -> Result<[u8; 8], String> {
-    let value = value(values, "package.magic_hex", path)?;
-    if value.len() != 16 {
-        return Err(format!("{path}: package.magic_hex は 8 byte の 16 進数"));
+fn parse_magic(hex: &str) -> Result<[u8; 8], String> {
+    if hex.len() != 16 {
+        return Err(format!(
+            "magic_hex must be 16 hex chars (8 bytes), got \"{hex}\""
+        ));
     }
 
     let mut bytes = [0; 8];
     for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-            .map_err(|_| format!("{path}: package.magic_hex が不正"))?;
+        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)
+            .map_err(|_| format!("magic_hex contains non-hex chars: \"{hex}\""))?;
     }
     Ok(bytes)
 }
 
-fn build_spec(values: &BTreeMap<String, String>, path: &str) -> Result<Spec, String> {
-    let file_name = value(values, "package.file_name", path)?;
-    if !file_name
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
-    {
-        return Err(format!("{path}: package.file_name が不正"));
-    }
-
-    Ok(Spec {
-        file_name: file_name.to_owned(),
-        magic: parse_magic(values, path)?,
-        header_size: parse_u32(values, "package.header_size", path)? as usize,
-        format_version: parse_u32(values, "package.format_version", path)?,
-        target_hw_id: parse_u32(values, "package.target_hw_id", path)?,
-        target_fpga_id: parse_u32(values, "package.target_fpga_id", path)?,
-        flash_layout_id: parse_u32(values, "flash.layout_id", path)?,
-        flash_size_bytes: parse_u32(values, "flash.flash_size_bytes", path)?,
-        updater_base: parse_u32(values, "flash.updater_base", path)?,
-        updater_size: parse_u32(values, "flash.updater_size", path)?,
-        app_base: parse_u32(values, "flash.app_base", path)?,
-        app_size: parse_u32(values, "flash.app_size", path)?,
-        metadata_base: parse_u32(values, "flash.metadata_base", path)?,
-        metadata_size: parse_u32(values, "flash.metadata_size", path)?,
-        golden_updater_base_candidate: parse_u32(
-            values,
-            "flash.golden_updater_base_candidate",
-            path,
-        )?,
-        golden_updater_size_candidate: parse_u32(
-            values,
-            "flash.golden_updater_size_candidate",
-            path,
-        )?,
-    })
-}
-
-fn generate_rust(spec: &Spec, _path: &str) -> Result<String, String> {
+fn generate_rust(spec: &Spec) -> Result<String, String> {
     let magic = spec
         .magic
         .iter()
@@ -195,8 +143,9 @@ fn generate_rust(spec: &Spec, _path: &str) -> Result<String, String> {
 
     Ok(format!(
         "\
-// このファイルは tang-primer-25k-sd-updater-build が update_spec.conf から生成する。手編集しないこと。
-// 生成コードは tang_primer_25k_sd_updater::UpdateSpec を参照する。依存 crate の名前は tang_primer_25k_sd_updater にする。
+// This file is generated by tang-primer-25k-sd-updater-build from update_spec.toml. Do not edit.
+// The generated code refers to tang_primer_25k_sd_updater::UpdateSpec, so the dependency
+// crate must be named tang_primer_25k_sd_updater.
 pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec = tang_primer_25k_sd_updater::UpdateSpec {{
     file_name: \"{file_name}\",
     magic: [{magic}],
@@ -238,33 +187,31 @@ pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec = tang_primer_25k_sd_upda
 mod tests {
     use super::*;
 
-    const SAMPLE_CONF: &str = "\
+    const SAMPLE_TOML: &str = "\
 # sample spec
-package.file_name=TANG25K.UPD
-package.magic_hex=54414e4732354b00
-package.header_size=0x58
-package.format_version=1
-package.target_hw_id=0x5432354b
-package.target_fpga_id=0x47573541
-flash.flash_size_bytes=0x800000
-flash.updater_base=0x000000
-flash.updater_size=0x100000
-flash.app_base=0x100000
-flash.app_size=0x100000
-flash.metadata_base=0x200000
-flash.metadata_size=0x010000
-flash.golden_updater_base_candidate=0x700000
-flash.golden_updater_size_candidate=0x100000
-flash.layout_id=0x4c415931
+file_name = \"TANG25K.UPD\"
+magic_hex = \"54414e4732354b00\"
+header_size = 0x58
+format_version = 1
+target_hw_id = 0x5432354b
+target_fpga_id = 0x47573541
+
+[flash]
+flash_size_bytes = 0x800000
+updater_base = 0x000000
+updater_size = 0x100000
+app_base = 0x100000
+app_size = 0x100000
+metadata_base = 0x200000
+metadata_size = 0x010000
+golden_updater_base_candidate = 0x700000
+golden_updater_size_candidate = 0x100000
+layout_id = 0x4c415931
 ";
 
     #[test]
     fn parses_valid_spec() {
-        let spec = build_spec(
-            &parse_spec(SAMPLE_CONF, "update_spec.conf").unwrap(),
-            "update_spec.conf",
-        )
-        .unwrap();
+        let spec = parse(SAMPLE_TOML, "update_spec.toml").unwrap();
         assert_eq!(spec.file_name, "TANG25K.UPD");
         assert_eq!(spec.app_base, 0x100000);
         assert_eq!(spec.header_size, 0x58);
@@ -273,31 +220,47 @@ flash.layout_id=0x4c415931
 
     #[test]
     fn rejects_missing_key() {
-        let spec = SAMPLE_CONF.replace("flash.layout_id=0x4c415931\n", "");
-        assert!(parse_spec(&spec, "update_spec.conf").is_err());
+        let spec = SAMPLE_TOML.replace("layout_id = 0x4c415931\n", "");
+        assert!(parse(&spec, "update_spec.toml").is_err());
     }
 
     #[test]
     fn rejects_unknown_key() {
-        let spec = format!("{SAMPLE_CONF}extra.key=1\n");
-        assert!(parse_spec(&spec, "update_spec.conf").is_err());
+        let spec = format!("{SAMPLE_TOML}extra_key = 1\n");
+        assert!(parse(&spec, "update_spec.toml").is_err());
+    }
+
+    #[test]
+    fn rejects_non_u32_value() {
+        let spec = SAMPLE_TOML.replace("header_size = 0x58", "header_size = -1");
+        assert!(parse(&spec, "update_spec.toml").is_err());
     }
 
     #[test]
     fn rejects_invalid_file_name() {
-        let spec = SAMPLE_CONF.replace("package.file_name=TANG25K.UPD", "package.file_name=../x");
-        let values = parse_spec(&spec, "update_spec.conf").unwrap();
-        assert!(build_spec(&values, "update_spec.conf").is_err());
+        let spec = SAMPLE_TOML.replace("file_name = \"TANG25K.UPD\"", "file_name = \"../x\"");
+        assert!(parse(&spec, "update_spec.toml").is_err());
+    }
+
+    #[test]
+    fn rejects_bad_magic_length() {
+        let spec = SAMPLE_TOML.replace("magic_hex = \"54414e4732354b00\"", "magic_hex = \"ff\"");
+        assert!(parse(&spec, "update_spec.toml").is_err());
+    }
+
+    #[test]
+    fn rejects_non_hex_magic() {
+        let spec = SAMPLE_TOML.replace(
+            "magic_hex = \"54414e4732354b00\"",
+            "magic_hex = \"zzzzzzzzzzzzzzzz\"",
+        );
+        assert!(parse(&spec, "update_spec.toml").is_err());
     }
 
     #[test]
     fn generates_const_with_crate_reference() {
-        let spec = build_spec(
-            &parse_spec(SAMPLE_CONF, "update_spec.conf").unwrap(),
-            "update_spec.conf",
-        )
-        .unwrap();
-        let generated = generate_rust(&spec, "update_spec.conf").unwrap();
+        let spec = parse(SAMPLE_TOML, "update_spec.toml").unwrap();
+        let generated = generate_rust(&spec).unwrap();
         assert!(generated.contains("pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec"));
         assert!(generated.contains("file_name: \"TANG25K.UPD\""));
     }

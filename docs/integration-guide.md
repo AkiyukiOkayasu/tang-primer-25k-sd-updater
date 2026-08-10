@@ -42,7 +42,7 @@
 
 | 要素 | このリポジトリの場所 | プロジェクト側で作るもの |
 |---|---|---|
-| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` 実装 + `main.rs` + `update_spec.conf` |
+| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` 実装 + `main.rs` + `update_spec.toml` |
 | ビルド補助 | `crates/tang-primer-25k-sd-updater-build` | `build.rs` から呼ぶ |
 | ホストツール | `crates/tang-primer-25k-sd-updater-tools` | なし (CLI として使用) |
 | RTL ライブラリ | `rtl/` (Veryl `tang_primer_25k_sd_updater`) | `top.veryl` (配線のみ) |
@@ -92,7 +92,7 @@ header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 | 0x24 | 4 | payload_crc32 | payload の CRC32 |
 | 0x28 | 32 | reserved | 旧 payload_sha256 フィールド (ゼロ埋め) |
 
-値の基準は常にプロジェクトの `update_spec.conf`。
+値の基準は常にプロジェクトの `update_spec.toml`。
 
 - `header_size` は **0x48 以上**であること (sha256 フィールドが収まる範囲。
   0x58 の場合 0x48..0x58 の 16 バイトはゼロ埋めの予約領域)
@@ -128,7 +128,7 @@ riscv-rt = { version = "0.17.1", features = ["memory", "single-hart", "no-mharti
 ```
 
 - `edition = "2024"` が必要 (`#[unsafe(export_name = ...)]` 構文のため)
-- `update_spec.conf` は 4.3 で定義する (build.rs がビルド時に参照)
+- `update_spec.toml` は 4.3 で定義する (build.rs がビルド時に参照)
 
 `.cargo/config.toml` (riscv ターゲット固定):
 
@@ -165,8 +165,8 @@ REGION_ALIAS("REGION_STACK", STACK);
 
 ```rust
 fn main() {
-    println!("cargo:rerun-if-changed=update_spec.conf");
-    tang_primer_25k_sd_updater_build::generate("update_spec.conf").expect("update_spec.conf を読み込めない");
+    println!("cargo:rerun-if-changed=update_spec.toml");
+    tang_primer_25k_sd_updater_build::generate("update_spec.toml").expect("update_spec.toml を読み込めない");
 }
 ```
 
@@ -226,29 +226,31 @@ target = { type = "directory", path = "target/" }
 tang_primer_25k_sd_updater = { version = "0.1.0" }
 ```
 
-### 4.3 update_spec.conf
+### 4.3 update_spec.toml
 
 プロジェクト固有の値 (hw_id / flash layout) を定義する唯一のファイル。
-リポジトリの `update_spec.example.conf` を雛形として使う。
+リポジトリの `update_spec.example.toml` を雛形として使う。
 キー集合と構文は tang-primer-25k-sd-updater-build のドキュメントを参照。
 
-```text
-package.file_name=TANG25K.UPD
-package.magic_hex=54414e4732354b00
-package.header_size=0x58
-package.format_version=1
-package.target_hw_id=0x5432354b
-package.target_fpga_id=0x47573541
-flash.flash_size_bytes=0x800000
-flash.updater_base=0x000000
-flash.updater_size=0x100000
-flash.app_base=0x100000
-flash.app_size=0x100000
-flash.metadata_base=0x200000
-flash.metadata_size=0x010000
-flash.golden_updater_base_candidate=0x700000
-flash.golden_updater_size_candidate=0x100000
-flash.layout_id=0x4c415931
+```toml
+file_name = "TANG25K.UPD"
+magic_hex = "54414e4732354b00"
+header_size = 0x58
+format_version = 1
+target_hw_id = 0x5432354b
+target_fpga_id = 0x47573541
+
+[flash]
+flash_size_bytes = 0x800000
+updater_base = 0x000000
+updater_size = 0x100000
+app_base = 0x100000
+app_size = 0x100000
+metadata_base = 0x200000
+metadata_size = 0x010000
+golden_updater_base_candidate = 0x700000
+golden_updater_size_candidate = 0x100000
+layout_id = 0x4c415931
 ```
 
 各キーの役割:
@@ -534,7 +536,7 @@ module UpdaterTop (
     var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
     inst regs: tang_primer_25k_sd_updater_UpdaterRegs #(
         BASE          : 32'h03_0000,   // firmware の UPDATER_PERIPH_BASE の下位 22bit
-        FLASH_APP_BASE: 32'h0010_0000, // update_spec.conf の app_base と一致させる
+        FLASH_APP_BASE: 32'h0010_0000, // update_spec.toml の app_base と一致させる
         FLASH_APP_END : 32'h0020_0000, // app_base + app_size
     ) (
         i_clk: clk, i_rst: rst_delayed,
@@ -562,7 +564,7 @@ module UpdaterTop (
 | `PicoTcm.ADDR_WIDTH` | TCM サイズ。firmware の `memory.x` の RAM+STACK 合計と一致させる (32KB = 15) |
 | `PicoTcm.HEX_FILE` | `$readmemh` のファイル名。Gowin 合成時の解決先は tool 依存なので、生成される `dependencies/tang_primer_25k_sd_updater/src/` を含む複数箇所に hex を配置して検証する |
 | `UpdaterRegs.BASE` | peripheral 窓内のベースオフセット (firmware の `UPDATER_PERIPH_BASE` の下位 22bit) |
-| `UpdaterRegs.FLASH_APP_BASE/END` | app slot の範囲 (update_spec.conf の `flash.app_base` / `+app_size`) |
+| `UpdaterRegs.FLASH_APP_BASE/END` | app slot の範囲 (update_spec.toml の `flash.app_base` / `+app_size`) |
 
 ---
 
@@ -632,7 +634,7 @@ set_option -multiboot_spi_flash_address 100000
 set_option -bg_programming userlogic
 ```
 
-- `multiboot_spi_flash_address` は update_spec.conf の `flash.app_base` と一致させる
+- `multiboot_spi_flash_address` は update_spec.toml の `flash.app_base` と一致させる
 - `hotboot` / `MSPI_JUMP` は使わない
 
 ---

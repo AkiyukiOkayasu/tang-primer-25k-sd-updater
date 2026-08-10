@@ -1,6 +1,6 @@
 //! SD updater のホストツール。
 //!
-//! `update_spec.conf` から package (TANG25K.UPD) と factory flash image を生成する。
+//! `update_spec.toml` から package (TANG25K.UPD) と factory flash image を生成する。
 //! CRC32 / SHA256 は共有 crate `tang-primer-25k-sd-updater` を再利用し、spec のパース・検証は
 //! `tang-primer-25k-sd-updater-build` に集約されている。
 
@@ -39,8 +39,8 @@ fn print_usage() {
         "SD updater ホストツール\n\
          \n\
          Usage:\n\
-           tang-primer-25k-sd-updater-tools make-update-package <payload> <output> --spec <update_spec.conf> [--app-version N]\n\
-           tang-primer-25k-sd-updater-tools make-factory-image <updater> <app> <output> --spec <update_spec.conf>\n\
+           tang-primer-25k-sd-updater-tools make-update-package <payload> <output> --spec <update_spec.toml> [--app-version N]\n\
+           tang-primer-25k-sd-updater-tools make-factory-image <updater> <app> <output> --spec <update_spec.toml>\n\
          \n\
          --app-version は 10 進数または 0x 接頭辞付き 16 進数 (既定 0)"
     );
@@ -80,7 +80,7 @@ fn parse_common_args(args: &[String]) -> Result<CommonArgs, String> {
 
     Ok(CommonArgs {
         positionals,
-        spec: spec.ok_or("--spec <update_spec.conf> が必須です")?,
+        spec: spec.ok_or("--spec <update_spec.toml> が必須です")?,
         app_version,
     })
 }
@@ -237,28 +237,30 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    const SAMPLE_CONF: &str = "\
+    const SAMPLE_TOML: &str = "\
 # sample spec
-package.file_name=TANG25K.UPD
-package.magic_hex=54414e4732354b00
-package.header_size=0x58
-package.format_version=1
-package.target_hw_id=0x5432354b
-package.target_fpga_id=0x47573541
-flash.flash_size_bytes=0x800000
-flash.updater_base=0x000000
-flash.updater_size=0x100000
-flash.app_base=0x100000
-flash.app_size=0x100000
-flash.metadata_base=0x200000
-flash.metadata_size=0x010000
-flash.golden_updater_base_candidate=0x700000
-flash.golden_updater_size_candidate=0x100000
-flash.layout_id=0x4c415931
+file_name = \"TANG25K.UPD\"
+magic_hex = \"54414e4732354b00\"
+header_size = 0x58
+format_version = 1
+target_hw_id = 0x5432354b
+target_fpga_id = 0x47573541
+
+[flash]
+flash_size_bytes = 0x800000
+updater_base = 0x000000
+updater_size = 0x100000
+app_base = 0x100000
+app_size = 0x100000
+metadata_base = 0x200000
+metadata_size = 0x010000
+golden_updater_base_candidate = 0x700000
+golden_updater_size_candidate = 0x100000
+layout_id = 0x4c415931
 ";
 
     fn test_spec() -> Spec {
-        tang_primer_25k_sd_updater_build::parse(SAMPLE_CONF, "update_spec.conf").unwrap()
+        tang_primer_25k_sd_updater_build::parse(SAMPLE_TOML, "update_spec.toml").unwrap()
     }
 
     fn temp_dir() -> PathBuf {

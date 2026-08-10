@@ -1,0 +1,26 @@
+# update_spec.toml のサンプル。
+# プロジェクト固有の値 (ファイル名 / magic / hw_id / flash layout) に書き換えて使う。
+# キー集合と構文は crates/tang-primer-25k-sd-updater-build のドキュメントを参照。
+#
+# 制約:
+# - file_name: FAT32 8.3 (8 文字以内 + 拡張子 3 文字以内)、ASCII 英数字とドットのみ
+# - magic_hex: ちょうど 8 byte の 16 進数 (16 文字)
+
+file_name = "TANG25K.UPD"
+magic_hex = "54414e4732354b00"
+header_size = 0x58
+format_version = 1
+target_hw_id = 0x5432354b
+target_fpga_id = 0x47573541
+
+[flash]
+flash_size_bytes = 0x800000
+updater_base = 0x000000
+updater_size = 0x100000
+app_base = 0x100000
+app_size = 0x100000
+metadata_base = 0x200000
+metadata_size = 0x010000
+golden_updater_base_candidate = 0x700000
+golden_updater_size_candidate = 0x100000
+layout_id = 0x4c415931

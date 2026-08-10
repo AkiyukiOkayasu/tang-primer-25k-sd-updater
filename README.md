@@ -36,12 +36,12 @@ tang_primer_25k_sd_updater = { version = "0.1.0" }
 tang-primer-25k-sd-updater-build = { version = "0.1.0" }
 ```
 
-`build.rs` (プロジェクト固有の `update_spec.conf` から定数を生成):
+`build.rs` (プロジェクト固有の `update_spec.toml` から定数を生成):
 
 ```rust
 fn main() {
-    println!("cargo:rerun-if-changed=update_spec.conf");
-    tang_primer_25k_sd_updater_build::generate("update_spec.conf").expect("update_spec.conf を読み込めない");
+    println!("cargo:rerun-if-changed=update_spec.toml");
+    tang_primer_25k_sd_updater_build::generate("update_spec.toml").expect("update_spec.toml を読み込めない");
 }
 ```
 
@@ -85,8 +85,8 @@ inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
 
 ```sh
 cargo install tang-primer-25k-sd-updater-tools
-tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec update_spec.conf
-tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.conf
+tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec update_spec.toml
+tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.toml
 ```
 
 ## 詳細
@@ -94,15 +94,15 @@ tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.
 実装・ブリングアップの詳細は **[docs/integration-guide.md](docs/integration-guide.md)**
 (BoardIo 実装例、top.veryl 完全例、ビルドフロー、デバッグ手順) を参照してください。
 
-`update_spec.conf` (更新ファイル名・target ID・Flash layout の唯一の定義) の書き方は
-[update_spec.example.conf](update_spec.example.conf) とガイドの「update_spec.conf」章を参照してください。
+`update_spec.toml` (更新ファイル名・target ID・Flash layout の唯一の定義) の書き方は
+[update_spec.example.toml](update_spec.example.toml) とガイドの「update_spec.toml」章を参照してください。
 
 ## 構成
 
 ```text
 crates/
 ├── tang-primer-25k-sd-updater/        # no_std コア (firmware に組み込む)
-├── tang-primer-25k-sd-updater-build/  # build.rs 補助 (update_spec.conf → Rust 定数)
+├── tang-primer-25k-sd-updater-build/  # build.rs 補助 (update_spec.toml → Rust 定数)
 └── tang-primer-25k-sd-updater-tools/  # ホスト CLI (更新ファイル / factory image 生成)
 rtl/
 └── src/               # Veryl ライブラリ tang_primer_25k_sd_updater (RTL モジュール群)
