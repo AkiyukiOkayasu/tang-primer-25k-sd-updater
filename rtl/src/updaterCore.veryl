@@ -8,12 +8,9 @@
 /// `picorv32.v` は `rtl/vendor/picorv32/` に同梱 (ISC license)。利用プロジェクトの
 /// ファイルリストに追加すること (veryl build の生成物には含まれない)。
 pub module UpdaterCore #(
-    param DELAY_CYCLES  : u32    = 256          , /// リセット解除後の遅延サイクル数
-    param TCM_ADDR_WIDTH: u32    = 15           , /// TCM アドレス幅 (32KB = 15bit)
-    param HEX_FILE      : string = "updater.hex", /// TCM の $readmemh で読む hex ファイル名
-    param BASE          : u32    = 32'h0003_0000, /// UpdaterRegs の peripheral 窓内ベースオフセット
-    param FLASH_APP_BASE: u32    = 32'h0010_0000, /// app slot 先頭 (update_spec.toml の flash.app_base)
-    param FLASH_APP_END : u32    = 32'h0020_0000, /// app slot 末尾 (app_base + app_size)
+    param TCM_ADDR_WIDTH: u32 = 32'h000F     , /// TCM アドレス幅 (32KB = 15bit)。firmware の memory.x と一致させる
+    param FLASH_APP_BASE: u32 = 32'h0010_0000, /// app slot 先頭 (update_spec.toml の flash.app_base)
+    param FLASH_APP_END : u32 = 32'h0020_0000, /// app slot 末尾 (app_base + app_size)
 ) (
     i_clk: input clock           ,
     i_rst: input reset_async_high,
@@ -37,7 +34,7 @@ pub module UpdaterCore #(
     // =========================================
     var rst_delayed: reset_sync_high;
     inst reset_bridge: rst_bridge #(
-        DELAY_CYCLES: DELAY_CYCLES,
+        DELAY_CYCLES: 256,
     ) (
         clk     : i_clk      ,
         rst     : i_rst      ,
@@ -168,7 +165,7 @@ pub module UpdaterCore #(
     // =========================================
     inst tcm: PicoTcm #(
         ADDR_WIDTH: TCM_ADDR_WIDTH,
-        HEX_FILE  : HEX_FILE      ,
+        HEX_FILE  : "updater.hex" ,
     ) (
         i_clk      : i_clk        ,
         i_mem_valid: tcm_mem_valid,
@@ -183,7 +180,7 @@ pub module UpdaterCore #(
     // =========================================
     var state_enum: updater_pkg::UpdaterState;
     inst regs: UpdaterRegs #(
-        BASE          : BASE          ,
+        BASE          : 32'h0003_0000 ,
         FLASH_APP_BASE: FLASH_APP_BASE,
         FLASH_APP_END : FLASH_APP_END ,
     ) (
