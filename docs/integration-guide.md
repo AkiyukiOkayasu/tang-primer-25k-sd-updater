@@ -7,7 +7,7 @@
 前提: **Tang Primer 25K (GW5A-25A MBGA121N, Arora V)** + **PicoRV32 ソフトコア** + **Veryl**。
 他の GW5A 系ボードへ移植する場合は、Configuration Flash のピンアサインと MultiBoot 設定を確認する。
 再構成は MultiBoot + `RECONFIG_N` Low pulse を使用します (配線は 9.2)。
-システムクロック 50 MHz 前提 (firmware の delay 換算)。別クロックで使う場合は delay の換算を調整する。
+システムクロック 50 MHz 前提 (firmware の delay は 50 MHz 換算)。
 updater firmware は TCM 32KB 以内、SD カードは FAT32。
 
 ---
@@ -44,7 +44,7 @@ updater firmware は TCM 32KB 以内、SD カードは FAT32。
 
 | 要素 | このリポジトリの場所 | プロジェクト側で作るもの |
 | --- | --- | --- |
-| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` (firmware と MMIO を繋ぐトレイト、実装例は第 5 章) + `main.rs` + `update_spec.toml` |
+| firmware コア | `crates/tang-primer-25k-sd-updater` (no_std) | `BoardIo` (firmware と MMIO を繋ぐトレイト、実装例は 5 章) + `main.rs` + `update_spec.toml` |
 | ビルド補助 | `crates/tang-primer-25k-sd-updater-build` | `build.rs` から呼ぶ |
 | ホストツール | `crates/tang-primer-25k-sd-updater-tools` | なし (CLI として使用) |
 | RTL ライブラリ | `rtl/` (Veryl `tang_primer_25k_sd_updater`) | `top.veryl` (配線のみ) |
@@ -61,7 +61,7 @@ updater firmware は TCM 32KB 以内、SD カードは FAT32。
    - embedded-sdmmc で初期化し、FAT ボリュームをマウント
 2. `read_header()` — 固定ファイル名 (`UpdateSpec.file_name`) の header を読み、
    `update_spec.toml` 由来の生成定数 (SPEC) と一致するか検証
-   (magic / format_version / target_hw_id / target_fpga_id / flash_layout_id / payload_size。詳細は第 3 節)
+   (magic / format_version / target_hw_id / target_fpga_id / flash_layout_id / payload_size。詳細は 3 章)
 3. **skip 判定**: app slot の現内容の **CRC32** を header の `payload_crc32` と比較
    - 一致 → 書き込みをスキップして reconfig (SD payload は読まない)
    - 不一致 → 次へ
@@ -85,6 +85,9 @@ header (0x58 = 88 bytes) + payload (app bitstream) の連結。
 tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec update_spec.toml
 ```
 
+`app.bin` は app のビットストリーム (Gowin 合成の出力 .bin/.fs をそのまま使う)。
+`updater.bin` / `FACTORY.bin` は 8.1 と 8.3 で扱う。
+
 | offset | サイズ | フィールド | 説明 |
 | --- | --- | --- | --- |
 | 0x00 | 8 | magic | ファイル形式識別子 (プロジェクト固有) |
@@ -100,7 +103,8 @@ tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec 
 
 値の基準は常にプロジェクトの `update_spec.toml`。
 
-- `header_size` は **0x48 以上**であること (0x28 以降はゼロ埋めの予約領域)
+- `header_size` は **0x48 以上**であれば任意 (0x28 以降はゼロ埋めの予約領域。
+  サンプルでは 0x58 を 4 バイト境界アライメントで用いる)
 
 ---
 
@@ -156,19 +160,34 @@ REGION_ALIAS("REGION_HEAP", RAM);
 REGION_ALIAS("REGION_STACK", STACK);
 ```
 
-- RAM+STACK の合計が `PicoTcm.ADDR_WIDTH` の容量と一致すること (32KB = 15bit)
-- `build.rs` で memory.x を OUT_DIR へコピーし、`cargo:rustc-link-search` を出す
+- RAM+STACK の合計は TCM の固定サイズ 32KB (15bit) と一致させる
+  (TCM サイズの固定化の理由は 6 章参照)
+- memory.x を OUT_DIR へコピーし、`cargo:rustc-link-search` を出す (riscv-rt の link.x が参照する)
 
 `build.rs`:
 
 ```rust
+use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+
 fn main() {
+    let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    File::create(out.join("memory.x"))
+        .unwrap()
+        .write_all(include_bytes!("memory.x"))
+        .unwrap();
+    println!("cargo:rustc-link-search={}", out.display());
+    println!("cargo:rerun-if-changed=memory.x");
+
     println!("cargo:rerun-if-changed=update_spec.toml");
-    tang_primer_25k_sd_updater_build::generate("update_spec.toml").expect("update_spec.toml を読み込めない");
+    tang_primer_25k_sd_updater_build::generate("update_spec.toml")
+        .expect("update_spec.toml を読み込めない");
 }
 ```
 
-`main.rs` (entry。`mmio` モジュールは第 5 節のテンプレートで実装する):
+`main.rs` (entry。`mmio` モジュールは 5 章のテンプレートで実装する):
 
 ```rust
 #![no_std]
@@ -222,6 +241,10 @@ target = { type = "directory", path = "target/" }
 tang_primer_25k_sd_updater = { version = "0.1.0" }
 ```
 
+- `reset_type = "sync_high"` は生成物の既定。top の `rst` ポートは
+  `reset_async_high` で宣言し、`UpdaterCore` 内部の rst_bridge が
+  非同期アサート → 同期デアサートへ変換する (6 章の例参照)
+
 ### 4.3 update_spec.toml
 
 プロジェクト固有の値 (hw_id / flash layout) を定義する唯一のファイル。
@@ -255,22 +278,22 @@ layout_id = 0x4c415931
 | --- | --- |
 | `file_name` | SD から読む固定ファイル名 (FAT32 8.3: 8 文字 + 拡張子 3 文字) |
 | `magic_hex` | header 先頭 8 byte の 16 進数 (16 文字) |
-| `header_size` / `format_version` | header サイズ / パッケージ形式バージョン (第 3 節) |
-| `target_hw_id` / `target_fpga_id` | 製品 / FPGA 識別子 (第 3 節) |
+| `header_size` / `format_version` | header サイズ / パッケージ形式バージョン (3 章) |
+| `target_hw_id` / `target_fpga_id` | 製品 / FPGA 識別子 (3 章) |
 | `flash.flash_size_bytes` | Configuration Flash の容量 |
 | `flash.updater_base/size` | updater bitstream を置く領域 (通常 0x000000 から) |
-| `flash.app_base/size` | 更新対象の app slot。firmware の書き込み先と `UpdaterRegs.FLASH_APP_*` に一致させる |
+| `flash.app_base/size` | 更新対象の app slot。firmware の書き込み先と `UpdaterCore.FLASH_APP_BASE/END` に一致させる |
 | `flash.metadata_*` | 将来の適用済み管理用に予約 (現行フローでは未使用) |
 | `flash.golden_updater_*` | 将来の Golden fallback 用に予約 (現行フローでは未使用) |
-| `flash.layout_id` | レイアウト識別子 (第 2 章参照) |
+| `flash.layout_id` | レイアウト識別子 (2 章参照) |
 
 ---
 
 ## 5. BoardIo 実装 (テンプレート)
 
 `BoardIo` は SD byte SPI / Flash 操作 / reconfig トリガを MMIO レジスタに接続する。
-レジスタ配置は RTL の `rtl/src/updaterRegs.veryl` の doc comment
-(MMIO 契約表) と一致させること。
+以下のテンプレートがレジスタ配置の契約であり、RTL 側 (`UpdaterRegs`) と一致する。
+レジスタ配置を変える場合は firmware と RTL の両方を同期する。
 
 ```rust
 use core::ptr::{read_volatile, write_volatile};
@@ -494,10 +517,45 @@ module UpdaterTop (
   使えるようになるまでの待ち。文書化されていない仕様のため余裕を持たせた値で、
   動作クロックが変わった場合の振る舞いは未定義とする
 - `UpdaterRegs.BASE` = 0x03_0000 (firmware の `UPDATER_PERIPH_BASE` の下位 22bit と一致)
-- TCM の hex ファイル名 = `"updater.hex"` (Gowin 合成では
-  `dependencies/tang_primer_25k_sd_updater/src/` に配置する)
+- TCM の hex ファイル名 = `"updater.hex"` (Gowin プロジェクトの `src/` に配置し、
+  ファイルリストに追加する。詳細は 8.3 章)
 
-`UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (第 9.1 節)。
+### 6.1 ピン制約 (CST)
+
+`top.veryl` のポートをピンに割り当てる CST の最小例 (Tang Primer 25K の実例)。
+ピン番号は基板に合わせて変更する:
+
+```text
+// SD (Pmod MicroSD, SPI mode)
+IO_LOC "sd_cs_n" F5;
+IO_PORT "sd_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "sd_mosi" G7;
+IO_PORT "sd_mosi" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "sd_miso" H8;
+IO_PORT "sd_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
+IO_LOC "sd_sclk" H5;
+IO_PORT "sd_sclk" IO_TYPE=LVCMOS33 PULL_MODE=DOWN DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "sd_cd" H7;
+IO_PORT "sd_cd" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
+
+// Configuration Flash (MSPI ピンを user logic で使う)
+IO_LOC "flash_cs_n" E6;
+IO_LOC "flash_sclk" E7;
+IO_LOC "flash_mosi" D6;
+IO_LOC "flash_miso" E5;
+
+// MultiBoot トリガ (RECONFIG_N と外部ショート。外部プルアップ前提のため OPEN_DRAIN)
+IO_LOC "reconfig_trig_n" A1;
+IO_PORT "reconfig_trig_n" IO_TYPE=LVCMOS33 OPEN_DRAIN=ON;
+
+// state は 4 ビットを個別ピンに割り当てる
+IO_LOC "state[0]" J10;
+IO_LOC "state[1]" J11;
+IO_LOC "state[2]" F6;
+IO_LOC "state[3]" F7;
+```
+
+`UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (9.1 章)。
 ピンへ出力する場合は top 側で `assign` により logic へ変換する (CST のビット選択用)。
 LED 表示にする場合は、利用プロジェクト側で state を加工する (例: 更新中は点滅、エラーは常灯)。
 
@@ -511,7 +569,8 @@ LED 表示にする場合は、利用プロジェクト側で state を加工す
   (`veryl build` の生成物には含まれない。リポジトリ内の `rtl/vendor/picorv32/picorv32.v` を参照する)
 - パラメータは `UpdaterCore` に内蔵されており固定 (CSR 不使用、`ENABLE_MUL/DIV` は firmware の
   除算・乗算に必要)。調整が必要なのは `TWO_STAGE_SHIFT / TWO_CYCLE_ALU` のみ
-  (Fmax とのトレードオフ。タイミングに問題があれば `UpdaterCore` 側を編集する)
+  (Fmax とのトレードオフ)。調整する場合はライブラリを fork / vendor して編集する
+  (レジストリ取得版の内部は編集できない)
 
 ---
 
@@ -530,7 +589,7 @@ rustup component add llvm-tools-preview
 cargo build --release
 cargo objcopy --release --target riscv32imc-unknown-none-elf -- -O binary updater.bin
 bin2mem updater.bin updater.hex   # TCM の $readmemh 用
-# updater.hex を RTL プロジェクトの参照先にコピー (PicoTcm の HEX_FILE の解決先)
+# updater.hex を Gowin プロジェクトの src/ にコピー (PicoTcm の HEX_FILE の解決先、8.3 章参照)
 ```
 
 - `cargo build` は `.cargo/config.toml` の target 設定により riscv32imc 向けにビルドされる
@@ -546,7 +605,9 @@ veryl build --out-dir <Gowin プロジェクトの generated ディレクトリ>
 
 ### 8.3 Gowin 合成 (MultiBoot 設定)
 
-`run_gowin_updater.tcl` の要点:
+Gowin プロジェクトのファイルリストには、生成 SV と `picorv32.v` に加えて
+`updater.hex` を追加する (`PicoTcm.HEX_FILE` の `$readmemh` が参照する。プロジェクトの
+`src/updater.hex` に配置する)。`run_gowin_updater.tcl` の要点:
 
 ```tcl
 set_option -top_module fpga_updater_UpdaterTop
@@ -567,7 +628,7 @@ set_option -bg_programming userlogic
 - `hotboot` / `MSPI_JUMP` は使わない
 
 初回書き込みは factory イメージ (`make-factory-image updater.bin app.bin FACTORY.bin`)
-を生成し、Gowin Programmer で Configuration Flash に書き込む。
+を生成し、Gowin Programmer で Configuration Flash に `FACTORY.bin` を書き込む。
 0x000000 に updater、0x100000 に app が配置されるので、以降の更新は SD カードで行える。
 
 ---

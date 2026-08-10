@@ -14,19 +14,16 @@ SD カードの更新ファイルを検証して Configuration Flash の app slo
 
 ## 前提
 
-- ボード: Tang Primer 25K (GW5A-25A MBGA121N)。オンボード 8MB Configuration Flash (W25Q64JV 系) を
-  CFG/MSPI ピン (E6=MCS_N, E7=CCLK, D6=MOSI, E5=MISO) から user logic で直接操作する
-- SD カード: SPI モード接続 (Pmod MicroSD)
-- reconfig: MultiBoot + `RECONFIG_N` への Low pulse。`RECONFIG_N` はボードで外部プルアップ済みのため、
-  トリガーはオープンドレインでショートする
-- PicoRV32 ソフトコア + Veryl。firmware は `PicoTcm.ADDR_WIDTH` の TCM (32KB = 15bit) に収める。
-  動作検証は 50 MHz で実施
+- Tang Primer 25K (GW5A-25A)、PicoRV32 ソフトコア、Veryl、システムクロック 50 MHz
+- PicoRV32 (`picorv32.v`) はリポジトリに同梱済み (ISC license)
+- 詳細な前提・ボード配線は **[docs/integration-guide.md](docs/integration-guide.md)** を参照
 
 ## クイックスタート
 
-### Rust (firmware)
+組み込みの完全な手順 (Cargo.toml / build.rs / BoardIo 実装 / top.veryl / update_spec.toml /
+ビルドフロー) はすべて **integration-guide** にあります。ここでは概要のみ示します。
 
-`Cargo.toml`:
+### firmware (Rust)
 
 ```toml
 [dependencies]
@@ -36,44 +33,17 @@ tang_primer_25k_sd_updater = { version = "0.1.0" }
 tang-primer-25k-sd-updater-build = { version = "0.1.0" }
 ```
 
-`build.rs` (プロジェクト固有の `update_spec.toml` から定数を生成):
-
-```rust
-fn main() {
-    println!("cargo:rerun-if-changed=update_spec.toml");
-    tang_primer_25k_sd_updater_build::generate("update_spec.toml").expect("update_spec.toml を読み込めない");
-}
-```
-
-`BoardIo` を実装して起動:
-
-```rust
-include!(concat!(env!("OUT_DIR"), "/update_spec.rs"));
-
-let mut updater = tang_primer_25k_sd_updater::Updater::new(MyBoardIo::new(), SPEC);
-loop {
-    let status = updater.poll_once();
-    updater.report_status(status);
-}
-```
+`build.rs` から `update_spec.toml` の定数を生成し、`BoardIo` を実装して
+`Updater::new(io, SPEC)` で起動する (完全例は integration-guide 4.1 / 5 章)。
 
 ### RTL (Veryl)
 
-`Veryl.toml`:
-
-```toml
-[dependencies]
-tang_primer_25k_sd_updater = { version = "0.1.0" }
-```
-
-`top.veryl` は `UpdaterCore` (PicoRV32 + TCM + レジスタを内蔵) とボード固有の
-SD / Flash / reconfig ピンを配線するだけ:
+`UpdaterCore` (PicoRV32 + TCM + レジスタを内蔵) とボード固有のピンを配線するだけ:
 
 ```veryl
-var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
 inst core: tang_primer_25k_sd_updater::UpdaterCore #(
-    FLASH_APP_BASE: 32'h0010_0000,
-    FLASH_APP_END : 32'h0020_0000,
+    FLASH_APP_BASE: 32'h0010_0000, // update_spec.toml の flash.app_base
+    FLASH_APP_END : 32'h0020_0000, // app_base + app_size
 ) (
     i_clk: clk, i_rst: rst,
     o_sd_cs_n: sd_cs_n, o_sd_sclk: sd_sclk, o_sd_mosi: sd_mosi,
@@ -83,13 +53,9 @@ inst core: tang_primer_25k_sd_updater::UpdaterCore #(
     o_reconfig_trig_n: reconfig_trig_n,
     o_state: state_enum,
 );
-
-// enum → logic は assign で暗黙変換 (ピンへ出すときに変換する)
-assign state = state_enum;
 ```
 
-PicoRV32 (`rtl/vendor/picorv32/picorv32.v`, ISC license) はリポジトリに同梱済み。
-Gowin プロジェクトのファイルリストに追加すること (veryl build の生成物には含まれない)。
+完全例 (ポート宣言・enum → logic 変換・CST) は integration-guide 6 章。
 
 ### ホストツール
 
@@ -101,11 +67,11 @@ tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.
 
 ## 詳細
 
-実装・ブリングアップの詳細は **[docs/integration-guide.md](docs/integration-guide.md)**
-(BoardIo 実装例、top.veryl 完全例、ビルドフロー、デバッグ手順) を参照してください。
+**[docs/integration-guide.md](docs/integration-guide.md)** — BoardIo 実装例、top.veryl 完全例、
+update_spec.toml、ビルドフロー、デバッグ手順。
 
 `update_spec.toml` (更新ファイル名・target ID・Flash layout の唯一の定義) の書き方は
-[update_spec.example.toml](update_spec.example.toml) とガイドの「update_spec.toml」章を参照してください。
+[update_spec.example.toml](update_spec.example.toml) とガイドの「update_spec.toml」章を参照。
 
 ## 構成
 
@@ -137,4 +103,4 @@ veryl build
 
 ## ライセンス
 
-MIT OR Apache-2.0
+MIT OR Apache-2.0 (PicoRV32 は ISC license、`rtl/vendor/picorv32/LICENSE` 参照)
