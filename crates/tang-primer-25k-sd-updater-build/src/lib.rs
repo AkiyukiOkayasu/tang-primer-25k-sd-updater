@@ -240,7 +240,7 @@ mod tests {
 
     const SAMPLE_CONF: &str = "\
 # sample spec
-package.file_name=app.UPD
+package.file_name=TANG25K.UPD
 package.magic_hex=54414e4732354b00
 package.header_size=0x58
 package.format_version=1
@@ -265,7 +265,7 @@ flash.layout_id=0x4c415931
             "update_spec.conf",
         )
         .unwrap();
-        assert_eq!(spec.file_name, "app.UPD");
+        assert_eq!(spec.file_name, "TANG25K.UPD");
         assert_eq!(spec.app_base, 0x100000);
         assert_eq!(spec.header_size, 0x58);
         assert_eq!(spec.magic, [0x54, 0x41, 0x4E, 0x47, 0x32, 0x35, 0x4B, 0x00]);
@@ -285,7 +285,7 @@ flash.layout_id=0x4c415931
 
     #[test]
     fn rejects_invalid_file_name() {
-        let spec = SAMPLE_CONF.replace("package.file_name=app.UPD", "package.file_name=../x");
+        let spec = SAMPLE_CONF.replace("package.file_name=TANG25K.UPD", "package.file_name=../x");
         let values = parse_spec(&spec, "update_spec.conf").unwrap();
         assert!(build_spec(&values, "update_spec.conf").is_err());
     }
@@ -299,6 +299,6 @@ flash.layout_id=0x4c415931
         .unwrap();
         let generated = generate_rust(&spec, "update_spec.conf").unwrap();
         assert!(generated.contains("pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec"));
-        assert!(generated.contains("file_name: \"app.UPD\""));
+        assert!(generated.contains("file_name: \"TANG25K.UPD\""));
     }
 }

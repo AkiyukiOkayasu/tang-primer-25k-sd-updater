@@ -85,7 +85,7 @@ inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
 
 ```sh
 cargo install tang-primer-25k-sd-updater-tools
-tang-primer-25k-sd-updater-tools make-update-package app.bin app.UPD --spec update_spec.conf
+tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec update_spec.conf
 tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.conf
 ```
 
@@ -95,7 +95,7 @@ tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.
 (BoardIo 実装例、top.veryl 完全例、ビルドフロー、デバッグ手順) を参照してください。
 
 `update_spec.conf` (更新ファイル名・target ID・Flash layout の唯一の定義) の書き方は
-ガイドの「update_spec.conf」章を参照してください。
+[update_spec.example.conf](update_spec.example.conf) とガイドの「update_spec.conf」章を参照してください。
 
 ## 構成
 

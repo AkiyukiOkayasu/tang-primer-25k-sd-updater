@@ -74,7 +74,7 @@
 
 ---
 
-## 3. パッケージ形式 (app.UPD)
+## 3. パッケージ形式 (TANG25K.UPD)
 
 ホストツール `tang-primer-25k-sd-updater-tools make-update-package` が生成する形式。
 header (0x58 = 88 bytes) + payload (app bitstream) の連結。
@@ -229,10 +229,11 @@ tang_primer_25k_sd_updater = { version = "0.1.0" }
 ### 4.3 update_spec.conf
 
 プロジェクト固有の値 (hw_id / flash layout) を定義する唯一のファイル。
+リポジトリの `update_spec.example.conf` を雛形として使う。
 キー集合と構文は tang-primer-25k-sd-updater-build のドキュメントを参照。
 
 ```text
-package.file_name=app.UPD
+package.file_name=TANG25K.UPD
 package.magic_hex=54414e4732354b00
 package.header_size=0x58
 package.format_version=1

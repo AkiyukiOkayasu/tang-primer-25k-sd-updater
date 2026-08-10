@@ -62,7 +62,7 @@ impl UpdateSpec {
 
 #[cfg(test)]
 pub(crate) const TEST_SPEC: UpdateSpec = UpdateSpec {
-    file_name: "app.UPD",
+    file_name: "TANG25K.UPD",
     magic: [0x54, 0x41, 0x4E, 0x47, 0x32, 0x35, 0x4B, 0x00],
     header_size: 0x58,
     format_version: 1,

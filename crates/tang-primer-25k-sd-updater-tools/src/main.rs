@@ -1,6 +1,6 @@
 //! SD updater のホストツール。
 //!
-//! `update_spec.conf` から package (app.UPD) と factory flash image を生成する。
+//! `update_spec.conf` から package (TANG25K.UPD) と factory flash image を生成する。
 //! CRC32 / SHA256 は共有 crate `tang-primer-25k-sd-updater` を再利用し、spec のパース・検証は
 //! `tang-primer-25k-sd-updater-build` に集約されている。
 
@@ -239,7 +239,7 @@ mod tests {
 
     const SAMPLE_CONF: &str = "\
 # sample spec
-package.file_name=app.UPD
+package.file_name=TANG25K.UPD
 package.magic_hex=54414e4732354b00
 package.header_size=0x58
 package.format_version=1
