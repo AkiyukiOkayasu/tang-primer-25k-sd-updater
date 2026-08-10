@@ -240,12 +240,12 @@ mod tests {
 
     const SAMPLE_CONF: &str = "\
 # sample spec
-package.file_name=FPGAOSC.UPD
-package.magic_hex=465047414f534300
+package.file_name=app.UPD
+package.magic_hex=54414e4732354b00
 package.header_size=0x58
 package.format_version=1
-package.target_hw_id=0x46504f53
-package.target_fpga_id=0x47573525
+package.target_hw_id=0x5432354b
+package.target_fpga_id=0x47573541
 flash.flash_size_bytes=0x800000
 flash.updater_base=0x000000
 flash.updater_size=0x100000
@@ -255,7 +255,7 @@ flash.metadata_base=0x200000
 flash.metadata_size=0x010000
 flash.golden_updater_base_candidate=0x700000
 flash.golden_updater_size_candidate=0x100000
-flash.layout_id=0x46504f31
+flash.layout_id=0x4c415931
 ";
 
     #[test]
@@ -265,15 +265,15 @@ flash.layout_id=0x46504f31
             "update_spec.conf",
         )
         .unwrap();
-        assert_eq!(spec.file_name, "FPGAOSC.UPD");
+        assert_eq!(spec.file_name, "app.UPD");
         assert_eq!(spec.app_base, 0x100000);
         assert_eq!(spec.header_size, 0x58);
-        assert_eq!(spec.magic, [0x46, 0x50, 0x47, 0x41, 0x4F, 0x53, 0x43, 0x00]);
+        assert_eq!(spec.magic, [0x54, 0x41, 0x4E, 0x47, 0x32, 0x35, 0x4B, 0x00]);
     }
 
     #[test]
     fn rejects_missing_key() {
-        let spec = SAMPLE_CONF.replace("flash.layout_id=0x46504f31\n", "");
+        let spec = SAMPLE_CONF.replace("flash.layout_id=0x4c415931\n", "");
         assert!(parse_spec(&spec, "update_spec.conf").is_err());
     }
 
@@ -285,7 +285,7 @@ flash.layout_id=0x46504f31
 
     #[test]
     fn rejects_invalid_file_name() {
-        let spec = SAMPLE_CONF.replace("package.file_name=FPGAOSC.UPD", "package.file_name=../x");
+        let spec = SAMPLE_CONF.replace("package.file_name=app.UPD", "package.file_name=../x");
         let values = parse_spec(&spec, "update_spec.conf").unwrap();
         assert!(build_spec(&values, "update_spec.conf").is_err());
     }
@@ -299,6 +299,6 @@ flash.layout_id=0x46504f31
         .unwrap();
         let generated = generate_rust(&spec, "update_spec.conf").unwrap();
         assert!(generated.contains("pub const SPEC: tang_primer_25k_sd_updater::UpdateSpec"));
-        assert!(generated.contains("file_name: \"FPGAOSC.UPD\""));
+        assert!(generated.contains("file_name: \"app.UPD\""));
     }
 }

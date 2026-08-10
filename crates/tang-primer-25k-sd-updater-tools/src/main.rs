@@ -1,6 +1,6 @@
 //! SD updater のホストツール。
 //!
-//! `update_spec.conf` から package (FPGAOSC.UPD) と factory flash image を生成する。
+//! `update_spec.conf` から package (app.UPD) と factory flash image を生成する。
 //! CRC32 / SHA256 は共有 crate `tang-primer-25k-sd-updater` を再利用し、spec のパース・検証は
 //! `tang-primer-25k-sd-updater-build` に集約されている。
 
@@ -239,12 +239,12 @@ mod tests {
 
     const SAMPLE_CONF: &str = "\
 # sample spec
-package.file_name=FPGAOSC.UPD
-package.magic_hex=465047414f534300
+package.file_name=app.UPD
+package.magic_hex=54414e4732354b00
 package.header_size=0x58
 package.format_version=1
-package.target_hw_id=0x46504f53
-package.target_fpga_id=0x47573525
+package.target_hw_id=0x5432354b
+package.target_fpga_id=0x47573541
 flash.flash_size_bytes=0x800000
 flash.updater_base=0x000000
 flash.updater_size=0x100000
@@ -254,7 +254,7 @@ flash.metadata_base=0x200000
 flash.metadata_size=0x010000
 flash.golden_updater_base_candidate=0x700000
 flash.golden_updater_size_candidate=0x100000
-flash.layout_id=0x46504f31
+flash.layout_id=0x4c415931
 ";
 
     fn test_spec() -> Spec {
@@ -286,9 +286,9 @@ flash.layout_id=0x46504f31
         assert_eq!(out.len(), 0x58 + 7);
         assert_eq!(&out[0..8], &test_spec().magic);
         assert_eq!(read_u32_le(&out, 0x08), 1);
-        assert_eq!(read_u32_le(&out, 0x0C), 0x4650_4F53);
-        assert_eq!(read_u32_le(&out, 0x10), 0x4757_3525);
-        assert_eq!(read_u32_le(&out, 0x14), 0x4650_4F31);
+        assert_eq!(read_u32_le(&out, 0x0C), test_spec().target_hw_id);
+        assert_eq!(read_u32_le(&out, 0x10), test_spec().target_fpga_id);
+        assert_eq!(read_u32_le(&out, 0x14), test_spec().flash_layout_id);
         assert_eq!(read_u32_le(&out, 0x18), 0x123);
         assert_eq!(read_u32_le(&out, 0x1C), 0x58);
         assert_eq!(read_u32_le(&out, 0x20), 7);

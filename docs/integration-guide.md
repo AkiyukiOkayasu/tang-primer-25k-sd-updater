@@ -74,7 +74,7 @@
 
 ---
 
-## 3. パッケージ形式 (FPGAOSC.UPD)
+## 3. パッケージ形式 (app.UPD)
 
 ホストツール `tang-primer-25k-sd-updater-tools make-update-package` が生成する形式。
 header (0x58 = 88 bytes) + payload (app bitstream) の連結。
@@ -232,12 +232,12 @@ tang_primer_25k_sd_updater = { version = "0.1.0" }
 キー集合と構文は tang-primer-25k-sd-updater-build のドキュメントを参照。
 
 ```text
-package.file_name=FPGAOSC.UPD
-package.magic_hex=465047414f534300
+package.file_name=app.UPD
+package.magic_hex=54414e4732354b00
 package.header_size=0x58
 package.format_version=1
-package.target_hw_id=0x46504f53
-package.target_fpga_id=0x47573525
+package.target_hw_id=0x5432354b
+package.target_fpga_id=0x47573541
 flash.flash_size_bytes=0x800000
 flash.updater_base=0x000000
 flash.updater_size=0x100000
@@ -247,7 +247,7 @@ flash.metadata_base=0x200000
 flash.metadata_size=0x010000
 flash.golden_updater_base_candidate=0x700000
 flash.golden_updater_size_candidate=0x100000
-flash.layout_id=0x46504f31
+flash.layout_id=0x4c415931
 ```
 
 各キーの役割:

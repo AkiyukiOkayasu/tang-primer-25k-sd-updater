@@ -85,7 +85,7 @@ inst tcm: tang_primer_25k_sd_updater::PicoTcm #(
 
 ```sh
 cargo install tang-primer-25k-sd-updater-tools
-tang-primer-25k-sd-updater-tools make-update-package app.bin FPGAOSC.UPD --spec update_spec.conf
+tang-primer-25k-sd-updater-tools make-update-package app.bin app.UPD --spec update_spec.conf
 tang-primer-25k-sd-updater-tools make-factory-image updater.bin app.bin FACTORY.bin --spec update_spec.conf
 ```
 

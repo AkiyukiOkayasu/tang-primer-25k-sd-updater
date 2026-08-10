@@ -62,8 +62,8 @@ impl UpdateSpec {
 
 #[cfg(test)]
 pub(crate) const TEST_SPEC: UpdateSpec = UpdateSpec {
-    file_name: "FPGAOSC.UPD",
-    magic: [0x46, 0x50, 0x47, 0x41, 0x4F, 0x53, 0x43, 0x00],
+    file_name: "app.UPD",
+    magic: [0x54, 0x41, 0x4E, 0x47, 0x32, 0x35, 0x4B, 0x00],
     header_size: 0x58,
     format_version: 1,
     target_hw_id: 0x4650_4F53,
