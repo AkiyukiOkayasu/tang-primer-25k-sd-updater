@@ -1,6 +1,6 @@
 [project]
 name = "tang_primer_25k_sd_updater"
-version = "0.1.0"
+version = "0.2.0"
 description = "Reusable SD card updater RTL for Tang Primer 25K + PicoRV32"
 license = "MIT OR Apache-2.0"
 authors = ["Akiyuki Okayasu"]
