@@ -27,7 +27,7 @@ SD カードの更新ファイルを検証して Configuration Flash の app slo
 
 ```toml
 [dependencies]
-tang_primer_25k_sd_updater = { version = "0.2.0" }
+tang-primer-25k-sd-updater = { version = "0.2.0" }
 
 [build-dependencies]
 tang-primer-25k-sd-updater-build = { version = "0.2.0" }

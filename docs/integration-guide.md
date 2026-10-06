@@ -110,8 +110,8 @@ tang-primer-25k-sd-updater-tools make-update-package app.bin TANG25K.UPD --spec 
 
 ## 4. プロジェクトへの追加手順
 
-crates は crates.io、RTL ライブラリは Veryl registry から取得する (ローカルに
-共有 repo を clone する必要はない)。
+crates は crates.io、RTL ライブラリは Veryl registry (`github` + `version` 指定) から取得する
+(ローカルに共有 repo を clone する必要はない)。
 
 ### 4.1 Cargo (firmware)
 
@@ -119,10 +119,10 @@ crates は crates.io、RTL ライブラリは Veryl registry から取得する 
 
 ```toml
 [dependencies]
-tang_primer_25k_sd_updater = { version = "0.1" }
+tang-primer-25k-sd-updater = { version = "0.2" }
 
 [build-dependencies]
-tang-primer-25k-sd-updater-build = { version = "0.1" }
+tang-primer-25k-sd-updater-build = { version = "0.2" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 panic-halt = "1.0.0"
