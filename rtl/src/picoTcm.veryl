@@ -19,6 +19,7 @@ pub module PicoTcm #(
 ) {
     let word_addr: logic<ADDR_WIDTH - 2> = i_mem_addr[ADDR_WIDTH - 1:2];
 
+    #[allow(initial_assign)]
     var mem: logic<32> [1 << (ADDR_WIDTH - 2)];
 
     initial {
