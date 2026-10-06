@@ -1,4 +1,4 @@
-/// SD card / W25Q64 共通の SPI mode 0 byte transfer engine。
+/// SD card / SPI NOR Flash 共通の SPI mode 0 byte transfer engine。
 /// 1 start で MSB first の 8bit を送受信し、完了時に o_done を 1cycle 立てる。
 ///
 /// # Contract

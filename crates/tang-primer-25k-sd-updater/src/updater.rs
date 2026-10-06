@@ -3,7 +3,7 @@
 use crate::sd_spi::{
     FirmwareDelay, MmioSdSpi, SD_INIT_HALF_PERIOD_CYCLES, SD_RUN_HALF_PERIOD_CYCLES,
 };
-use crate::{BoardIo, IoError, UpdateSpec, crc32, package, w25q64};
+use crate::{BoardIo, IoError, UpdateSpec, crc32, package, spi_nor};
 use embedded_hal::delay::DelayNs;
 use embedded_sdmmc::{BlockDevice, Mode, SdCard, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 
@@ -109,8 +109,8 @@ pub struct Updater<Io> {
     io: Io,
     spec: UpdateSpec,
     terminal_status: Option<UpdateStatus>,
-    page: [u8; w25q64::PAGE_SIZE as usize],
-    verify: [u8; w25q64::PAGE_SIZE as usize],
+    page: [u8; spi_nor::PAGE_SIZE as usize],
+    verify: [u8; spi_nor::PAGE_SIZE as usize],
 }
 
 impl<Io: BoardIo + 'static> Updater<Io> {
@@ -119,8 +119,8 @@ impl<Io: BoardIo + 'static> Updater<Io> {
             io,
             spec,
             terminal_status: None,
-            page: [0; w25q64::PAGE_SIZE as usize],
-            verify: [0; w25q64::PAGE_SIZE as usize],
+            page: [0; spi_nor::PAGE_SIZE as usize],
+            verify: [0; spi_nor::PAGE_SIZE as usize],
         }
     }
 
@@ -332,7 +332,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     fn verify_flash_device(&mut self) -> Result<(), UpdateError> {
         self.report_status(UpdateStatus::FlashJedec);
         let jedec = self.io.flash_jedec_id().map_err(UpdateError::Flash)?;
-        if w25q64::is_supported_jedec_id(jedec) {
+        if spi_nor::is_supported_jedec_id(jedec) {
             Ok(())
         } else {
             Err(UpdateError::FlashJedec)
@@ -340,7 +340,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     }
 
     fn erase_app_slot(&mut self, payload_size: u32) -> Result<(), UpdateError> {
-        const ERASE_SIZE: u32 = w25q64::BLOCK_SIZE;
+        const ERASE_SIZE: u32 = spi_nor::BLOCK_SIZE;
 
         let erase_end = self
             .spec

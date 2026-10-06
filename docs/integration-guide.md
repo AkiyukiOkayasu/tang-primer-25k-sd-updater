@@ -422,7 +422,7 @@ impl BoardIo for UpdaterMmio {
     }
 
     fn flash_program_page(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if !tang_primer_25k_sd_updater::w25q64::page_program_len_ok(address, data.len() as u32) {
+        if !tang_primer_25k_sd_updater::spi_nor::page_program_len_ok(address, data.len() as u32) {
             return Err(IoError::OutOfRange);
         }
         self.write_buffer(REG_FLASH_BUFFER, data);
@@ -433,7 +433,7 @@ impl BoardIo for UpdaterMmio {
     }
 
     fn flash_read(&mut self, address: u32, out: &mut [u8]) -> Result<(), IoError> {
-        if out.len() > tang_primer_25k_sd_updater::w25q64::PAGE_SIZE as usize {
+        if out.len() > tang_primer_25k_sd_updater::spi_nor::PAGE_SIZE as usize {
             return Err(IoError::OutOfRange); // 最大 256 bytes
         }
         self.write(REG_FLASH_ADDRESS, address);

@@ -164,7 +164,7 @@ pub module UpdaterRegs #(
     const RECONFIG_CONTROL_ASSERT_LOW: logic<32> = 32'h0000_0001;
 
     const FLASH_PAGE_SIZE: logic<9> = 9'd256;
-    // W25Q64 の tSHSL(min 50ns) を満たすため、50MHz で3cycle(60ns)空ける。
+    // SPI NOR の write/erase/program 系 tSHSL(min 50ns) を満たすため、50MHz で3cycle(60ns)空ける。
     const FLASH_GAP_LAST: logic<2> = 2'd2;
 
     let is_write           : logic     = i_mem_wstrb != 0;

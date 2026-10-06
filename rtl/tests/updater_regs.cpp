@@ -94,9 +94,9 @@ static uint32_t read_le32(const std::vector<uint8_t> &bytes, size_t offset) {
            (static_cast<uint32_t>(bytes[offset + 3]) << 24);
 }
 
-class W25q64Model {
+class SpiNorModel {
 public:
-    W25q64Model() : memory(8 * 1024 * 1024, 0xff) {}
+    SpiNorModel() : memory(8 * 1024 * 1024, 0xff) {}
 
     void drive(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
         static constexpr uint8_t jedec[3] = {0xef, 0x40, 0x17};
@@ -231,7 +231,7 @@ private:
     bool status_poll_seen = false;
 };
 
-static void tick_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
+static void tick_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, SpiNorModel &flash) {
     top.i_clk = 0;
     top.eval();
     flash.drive(top);
@@ -247,7 +247,7 @@ static void tick_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model
 
 static void write_reg_flash(
     Vtang_primer_25k_sd_updater_UpdaterRegs &top,
-    W25q64Model &flash,
+    SpiNorModel &flash,
     uint32_t addr,
     uint32_t value
 ) {
@@ -261,7 +261,7 @@ static void write_reg_flash(
     tick_flash(top, flash);
 }
 
-static uint32_t read_reg_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model &flash, uint32_t addr) {
+static uint32_t read_reg_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, SpiNorModel &flash, uint32_t addr) {
     top.i_mem_valid = 1;
     top.i_mem_addr = addr;
     top.i_mem_wdata = 0;
@@ -273,7 +273,7 @@ static uint32_t read_reg_flash(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25
     return value;
 }
 
-static bool wait_flash_ready(Vtang_primer_25k_sd_updater_UpdaterRegs &top, W25q64Model &flash) {
+static bool wait_flash_ready(Vtang_primer_25k_sd_updater_UpdaterRegs &top, SpiNorModel &flash) {
     for (int i = 0; i < 8000; i++) {
         if ((read_reg_flash(top, flash, REG_FLASH_STATUS) & 1) == 0) {
             return true;
@@ -306,7 +306,7 @@ int main(int argc, char **argv) {
     top.i_flash_miso = 1;
     top.i_sd_miso = 1;
     reset(top);
-    W25q64Model flash;
+    SpiNorModel flash;
 
     bool ok = true;
     ok &= expect_eq("status reset", read_reg(top, REG_STATUS), 0);
