@@ -23,7 +23,6 @@ static constexpr uint32_t REG_FLASH_LENGTH = BASE + 0x0034;
 static constexpr uint32_t REG_FLASH_COMMAND = BASE + 0x0038;
 static constexpr uint32_t REG_FLASH_STATUS = BASE + 0x003c;
 static constexpr uint32_t REG_FLASH_JEDEC_ID = BASE + 0x0040;
-static constexpr uint32_t REG_DEBUG_STATE = BASE + 0x0048;
 static constexpr uint32_t REG_FLASH_BUFFER = BASE + 0x0300;
 
 static void tick(Vtang_primer_25k_sd_updater_UpdaterRegs &top) {
@@ -323,11 +322,6 @@ int main(int argc, char **argv) {
     write_reg(top, REG_STATE, 0x0000'000f);
     ok &= expect_eq("state register", read_reg(top, REG_STATE), 0x0000'000f);
     ok &= expect_eq("state output", top.o_state, 0x0000'000f);
-
-    ok &= expect_eq("debug state reset", read_reg(top, REG_DEBUG_STATE), 0);
-    write_reg(top, REG_DEBUG_STATE, 0x0000'00a5);
-    ok &= expect_eq("debug state register", read_reg(top, REG_DEBUG_STATE), 0x0000'00a5);
-    ok &= expect_eq("debug state output", top.o_debug_state, 0x0000'00a5);
 
     write_reg(top, REG_SD_CLK_DIV, 2);
     write_reg(top, REG_SD_CONTROL, 0x0000'0002);

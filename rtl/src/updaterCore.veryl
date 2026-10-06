@@ -29,9 +29,8 @@ pub module UpdaterCore #(
     o_flash_mosi: output logic, /// Flash MOSI
     i_flash_miso: input  logic, /// Flash MISO
 
-    o_reconfig_trig_n: output logic                       , /// MultiBoot トリガ (外部で RECONFIG_N へ)
-    o_state          : output updater_pkg::UpdaterState   , /// firmware 状態 (trap は ERROR)
-    o_debug_state    : output logic                    <8>, /// bring-up 用デバッグ値 (bit7 = CPU trap)
+    o_reconfig_trig_n: output logic                    , /// MultiBoot トリガ (外部で RECONFIG_N へ)
+    o_state          : output updater_pkg::UpdaterState, /// firmware 状態 (trap は ERROR)
 ) {
     // =========================================
     // Global Reset Synchronization and Delay
@@ -49,16 +48,13 @@ pub module UpdaterCore #(
     // =========================================
     // PicoRV32 (soft-core CPU)
     // =========================================
-    var mem_valid    : logic    ;
-    var mem_ready    : logic    ;
-    var mem_addr     : logic<32>;
-    var mem_wdata    : logic<32>;
-    var mem_wstrb    : logic<4> ;
-    var mem_rdata    : logic<32>;
-    var trap         : logic    ;
-    var trap_illinsn : logic    ;
-    var trap_ebreak  : logic    ;
-    var trap_misalign: logic    ;
+    var mem_valid: logic    ;
+    var mem_ready: logic    ;
+    var mem_addr : logic<32>;
+    var mem_wdata: logic<32>;
+    var mem_wstrb: logic<4> ;
+    var mem_rdata: logic<32>;
+    var trap     : logic    ;
 
     inst rv: $sv::picorv32 #(
         ENABLE_COUNTERS     : 1            ,
@@ -114,9 +110,9 @@ pub module UpdaterCore #(
         eoi                  : _            ,
         trace_valid          : _            ,
         trace_data           : _            ,
-        dbg_trap_illinsn     : trap_illinsn ,
-        dbg_trap_ebreak      : trap_ebreak  ,
-        dbg_trap_misalign    : trap_misalign,
+        dbg_trap_illinsn     : _            ,
+        dbg_trap_ebreak      : _            ,
+        dbg_trap_misalign    : _            ,
         dbg_trap_pcpi_timeout: _            ,
         dbg_trap_pc_low      : _            ,
         dbg_trap_ecall_ebreak: _            ,
@@ -188,41 +184,32 @@ pub module UpdaterCore #(
     // =========================================
     // Updater registers (SD / Flash / reconfig)
     // =========================================
-    var state_enum           : updater_pkg::UpdaterState   ;
-    var debug_state_from_regs: logic                    <8>;
+    var state_enum: updater_pkg::UpdaterState;
     inst regs: UpdaterRegs #(
         // firmware の UPDATER_PERIPH_BASE の下位 22bit と一致
         BASE          : 32'h0003_0000 ,
         FLASH_APP_BASE: FLASH_APP_BASE,
         FLASH_APP_END : FLASH_APP_END ,
     ) (
-        i_clk            : i_clk                ,
-        i_rst            : rst_delayed          ,
-        i_mem_valid      : peri_mem_valid       ,
-        i_mem_addr       : peri_mem_addr        ,
-        i_mem_wdata      : peri_mem_wdata       ,
-        i_mem_wstrb      : peri_mem_wstrb       ,
-        o_mem_rdata      : peri_mem_rdata       ,
-        o_state          : state_enum           ,
-        o_debug_state    : debug_state_from_regs,
-        o_sd_cs_n        : o_sd_cs_n            ,
-        o_sd_sclk        : o_sd_sclk            ,
-        o_sd_mosi        : o_sd_mosi            ,
-        i_sd_miso        : i_sd_miso            ,
-        i_sd_cd          : i_sd_cd              ,
-        o_flash_cs_n     : o_flash_cs_n         ,
-        o_flash_sclk     : o_flash_sclk         ,
-        o_flash_mosi     : o_flash_mosi         ,
-        i_flash_miso     : i_flash_miso         ,
-        o_reconfig_trig_n: o_reconfig_trig_n    ,
+        i_clk            : i_clk            ,
+        i_rst            : rst_delayed      ,
+        i_mem_valid      : peri_mem_valid   ,
+        i_mem_addr       : peri_mem_addr    ,
+        i_mem_wdata      : peri_mem_wdata   ,
+        i_mem_wstrb      : peri_mem_wstrb   ,
+        o_mem_rdata      : peri_mem_rdata   ,
+        o_state          : state_enum       ,
+        o_sd_cs_n        : o_sd_cs_n        ,
+        o_sd_sclk        : o_sd_sclk        ,
+        o_sd_mosi        : o_sd_mosi        ,
+        i_sd_miso        : i_sd_miso        ,
+        i_sd_cd          : i_sd_cd          ,
+        o_flash_cs_n     : o_flash_cs_n     ,
+        o_flash_sclk     : o_flash_sclk     ,
+        o_flash_mosi     : o_flash_mosi     ,
+        i_flash_miso     : i_flash_miso     ,
+        o_reconfig_trig_n: o_reconfig_trig_n,
     );
 
     assign o_state = if trap ? updater_pkg::UpdaterState::ERROR : state_enum;
-
-    // bit7 は CPU trap (firmware からは観測できない)。trap 中は下位 4bit を
-    // trap 要因 (bit0=illinsn, bit1=ebreak/ecall, bit2=misalign) に差し替え、
-    // 通常時は firmware が書いたエラー詳細を出す。
-    let trap_cause  : logic<4> = {1'b0, trap_misalign, trap_ebreak, trap_illinsn};
-    let debug_detail: logic<4> = if trap ? trap_cause : debug_state_from_regs[3:0];
-    assign o_debug_state = {trap, 3'b0, debug_detail};
 }
