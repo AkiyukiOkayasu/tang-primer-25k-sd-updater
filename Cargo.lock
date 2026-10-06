@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "tang-primer-25k-sd-updater"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "embedded-hal",
  "embedded-sdmmc",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "tang-primer-25k-sd-updater-build"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "toml",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "tang-primer-25k-sd-updater-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tang-primer-25k-sd-updater",
  "tang-primer-25k-sd-updater-build",

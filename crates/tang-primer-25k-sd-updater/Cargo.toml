@@ -1,6 +1,6 @@
 [package]
 name = "tang-primer-25k-sd-updater"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "SD card firmware updater core for FPGAs (no_std)"
 license = "MIT OR Apache-2.0"

@@ -27,10 +27,10 @@ SD カードの更新ファイルを検証して Configuration Flash の app slo
 
 ```toml
 [dependencies]
-tang_primer_25k_sd_updater = { version = "0.1.0" }
+tang_primer_25k_sd_updater = { version = "0.2.0" }
 
 [build-dependencies]
-tang-primer-25k-sd-updater-build = { version = "0.1.0" }
+tang-primer-25k-sd-updater-build = { version = "0.2.0" }
 ```
 
 `build.rs` から `update_spec.toml` の定数を生成し、`BoardIo` を実装して
@@ -42,7 +42,7 @@ tang-primer-25k-sd-updater-build = { version = "0.1.0" }
 
 ```toml
 [dependencies]
-tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.1.0" }
+tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.2.0" }
 ```
 
 `UpdaterCore` (PicoRV32 + TCM + レジスタを内蔵) とボード固有のピンを配線するだけ:

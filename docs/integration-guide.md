@@ -238,7 +238,7 @@ reset_type = "sync_high"
 target = { type = "directory", path = "target/" }
 
 [dependencies]
-tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.1.0" }
+tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.2.0" }
 ```
 
 - `reset_type = "sync_high"` は生成物の既定。top の `rst` ポートは
