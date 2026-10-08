@@ -458,7 +458,9 @@ where
     Ok(())
 }
 
-fn map_sd_error<E: core::fmt::Debug>(error: embedded_sdmmc::Error<E>) -> UpdateError {
+fn map_sd_error<E: core::fmt::Debug + core::error::Error>(
+    error: embedded_sdmmc::Error<E>,
+) -> UpdateError {
     match error {
         embedded_sdmmc::Error::DeviceError(_) => UpdateError::SdIo,
         embedded_sdmmc::Error::NotFound => UpdateError::SdFileNotFound,

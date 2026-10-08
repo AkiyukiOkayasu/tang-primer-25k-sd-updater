@@ -10,4 +10,4 @@ categories = ["embedded", "no-std", "hardware-support"]
 
 [dependencies]
 embedded-hal = "1.0.0"
-embedded-sdmmc = { version = "0.9.0", default-features = false }
+embedded-sdmmc = { version = "0.10.0", default-features = false }
