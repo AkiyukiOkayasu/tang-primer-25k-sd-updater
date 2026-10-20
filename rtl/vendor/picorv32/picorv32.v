@@ -238,6 +238,8 @@ module picorv32 #(
 	reg [31:0] timer;
 
 `ifndef PICORV32_REGS
+	// BSRAM推論を避ける意図 (GW5Aは分散RAM非対応のためFF実装になる)
+	/* synthesis syn_ramstyle="distributed_ram" */
 	reg [31:0] cpuregs [0:regfile_size-1];
 
 	integer i;
