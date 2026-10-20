@@ -10,7 +10,7 @@ use crate::{BoardIo, IoError};
 /// SD 初期化時の SPI クロック分周 (half period をサイクル数で指定)。
 pub const SD_INIT_HALF_PERIOD_CYCLES: u8 = 64;
 /// 通常動作時の SPI クロック分周。
-pub const SD_RUN_HALF_PERIOD_CYCLES: u8 = 4;
+pub const SD_RUN_HALF_PERIOD_CYCLES: u8 = 2;
 /// システムクロック。delay の tick 換算に使う。異なる周波数のプロジェクトでは書き換える。
 const SYS_CLK_HZ: u32 = 50_000_000;
 
