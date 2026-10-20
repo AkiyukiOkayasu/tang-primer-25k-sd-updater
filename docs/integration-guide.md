@@ -126,7 +126,14 @@ tang-primer-25k-sd-updater-build = { version = "0.2" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 panic-halt = "1.0.0"
-riscv-rt = { version = "0.17.1", features = ["memory", "single-hart", "no-mhartid", "no-xie-xip", "no-xtvec"] }
+riscv-rt = { version = "0.18.0", features = ["memory", "single-hart", "no-mhartid", "no-xie-xip", "no-xtvec", "custom-setup-interrupts"] }
+
+[profile.release]
+# バイト単位のSPI転送ループを含むため、サイズ優先の "z" より "s" が速い。
+# 実測では "s" の方がバイナリも小さくなった。
+opt-level = "s"
+lto = true
+codegen-units = 1
 ```
 
 - `update_spec.toml` は 4.3 で定義する (build.rs がビルド時に参照)
@@ -143,13 +150,13 @@ rustflags = ["-C", "link-arg=-Tlink.x"]
 runner = "false"
 ```
 
-`memory.x` (riscv-rt の link.x が参照する。TCM 32KB = RAM 28K + STACK 4K):
+`memory.x` (riscv-rt の link.x が参照する。TCM 32KB = RAM 24K + STACK 8K):
 
 ```text
 MEMORY
 {
-    RAM   : ORIGIN = 0x00000000, LENGTH = 28K
-    STACK : ORIGIN = 0x00007000, LENGTH = 4K
+    RAM   : ORIGIN = 0x00000000, LENGTH = 24K
+    STACK : ORIGIN = 0x00006000, LENGTH = 8K
 }
 
 REGION_ALIAS("REGION_TEXT", RAM);
@@ -202,8 +209,8 @@ use tang_primer_25k_sd_updater::Updater;
 
 include!(concat!(env!("OUT_DIR"), "/update_spec.rs"));
 
-#[unsafe(export_name = "_setup_interrupts")]
-fn setup_interrupts() {}
+#[riscv_rt::setup_interrupts]
+fn setup_interrupts(_hart_id: usize) {}
 
 #[riscv_rt::entry]
 fn main() -> ! {
@@ -218,7 +225,9 @@ fn main() -> ! {
 
 - `include!` で生成された `SPEC` を使う (生成コードは `tang_primer_25k_sd_updater::UpdateSpec` を参照するため、
   依存 crate の名前は `tang_primer_25k_sd_updater` で固定)
-- PicoRV32 は CSR 命令を使わない前提 (riscv-rt の割り込み初期化を空実装にする)
+- PicoRV32 は CSR 拡張を持たない。`custom-setup-interrupts` を有効化し、
+  `#[riscv_rt::setup_interrupts]` で割り込み初期化を空実装にする
+  (`no-xtvec` / `no-xie-xip` / `no-mhartid` と併用する)
 
 ### 4.2 Veryl (RTL)
 
@@ -511,8 +520,8 @@ module UpdaterTop (
 
 `UpdaterCore` 内部の固定値:
 
-- TCM: 32KB (ADDR_WIDTH 15)。firmware の `memory.x` (RAM 28K + STACK 4K) と一致。
-  現状の updater firmware は約 20.3KB のため 32KB 必要
+- TCM: 32KB (ADDR_WIDTH 15)。firmware の `memory.x` (RAM 24K + STACK 8K) と一致。
+  現状の updater firmware は約 20.8KB のため 32KB 必要
 - `rst_bridge.DELAY_CYCLES` = 1024 (20.48μs @ 50MHz)。Gowin BSRAM が reset 後に
   使えるようになるまでの待ち。文書化されていない仕様のため余裕を持たせた値で、
   動作クロックが変わった場合の振る舞いは未定義とする
