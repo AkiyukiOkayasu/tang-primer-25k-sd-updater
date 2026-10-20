@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 0.2.1 (2026-10-21)
+
+- Rust crates 0.2.1 / Veryl RTL 0.2.2
+- SD実行クロックを6.25MHz→12.5MHzへ高速化 (初期化390kHzは据え置き)
+- PicoRV32のレジスタファイルを2R1Wに戻し、cpuregsを`syn_ramstyle="distributed_ram"`でFF固定 (BSRAM複製による配置依存不具合を防止)
+- 依存ライブラリを更新 (toml/syn/indexmap等)
+- integration guideをriscv-rt 0.18.0 / `custom-setup-interrupts` / `opt-level="s"` / memory.x (RAM 24K + STACK 8K) に更新
+- 公開API・レジスタ契約に破壊的変更なし
+
 ## 0.2.0 (2026-10-07)
 
 - crates.io に公開: コア / build 補助 / ホストツール (0.2.0)

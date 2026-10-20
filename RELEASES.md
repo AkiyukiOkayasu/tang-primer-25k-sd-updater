@@ -1,5 +1,11 @@
 # RELEASES
 
+## 0.2.1 (2026-10-21)
+
+- SD実行クロックを12.5MHzへ高速化し、PicoRV32のレジスタファイルを2R1Wへ戻す
+- cpuregsのBSRAM推論を防ぐ合成属性を追加
+- 依存ライブラリ更新、integration guideのriscv-rt 0.18.0 / `opt-level="s"` 追随
+
 ## 0.2.0 (2026-10-07)
 
 - Flash 書込の CS# high 期間不足 (tSHSL 50ns 未満) を修正し、実機の SD 更新 0xF 終端を解決
