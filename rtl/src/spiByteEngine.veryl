@@ -75,7 +75,7 @@ pub module SpiByteEngine (
                             state = STATE_DONE;
                         } else {
                             tx_shift  =  {tx_shift[6:0], 1'b0};
-                            bit_count += 1;
+                            bit_count += 1'b1;
                             state     =  STATE_LOW;
                         }
                     } else {

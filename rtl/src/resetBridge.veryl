@@ -46,7 +46,7 @@ pub module rst_bridge #(
         if sync_ff2 {
             delay_cnt = 0;
         } else if delay_cnt <: DELAY_CYCLES {
-            delay_cnt = delay_cnt + 1;
+            delay_cnt = delay_cnt + 1'b1;
         }
     }
 

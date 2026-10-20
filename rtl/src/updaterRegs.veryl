@@ -550,7 +550,7 @@ pub module UpdaterRegs #(
                             if flash_data_index == 8'd2 {
                                 flash_state = updater_pkg::FlashState::DONE;
                             } else {
-                                flash_data_index += 1;
+                                flash_data_index += 1'b1;
                                 flash_state      =  updater_pkg::FlashState::DATA_START;
                             }
                         } else {
@@ -562,7 +562,7 @@ pub module UpdaterRegs #(
                                     flash_state = updater_pkg::FlashState::DONE;
                                 }
                             } else {
-                                flash_data_index += 1;
+                                flash_data_index += 1'b1;
                                 flash_state      =  updater_pkg::FlashState::DATA_START;
                             }
                         }
