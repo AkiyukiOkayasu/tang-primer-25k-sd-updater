@@ -1,5 +1,16 @@
 # RELEASES
 
+## 0.3.0 (2026-10-22)
+
+- 表示APIを変更 (breaking): `o_state` / `UpdaterState` / `BoardIo::set_state` を削除し、
+  プロジェクト定義の 8bit `DISPLAY` レジスタ (`o_display`) と `BoardIo::set_status` に移行。
+  enum の未定義値を firmware が書くと Gowin 合成後の比較が不正になる問題を根本的に避ける
+- CPU trap 時は `o_display=0xFF`。表示コードの意味はプロジェクト側で定義する
+- Flash の CS# high を 120ns に拡大し、SCLK を 12.5MHz に低速化して PnR マージンを確保。
+  実機の FPGA_ADAT で SD 更新経路を確認済み (更新時間の差は1秒未満)
+- tools のテストを並列実行でも安定するよう修正
+- 0.2.x のプロジェクトは `o_state` → `o_display`、`set_state` → `set_status` の移行が必要
+
 ## 0.2.1 (2026-10-21)
 
 - SD実行クロックを12.5MHzへ高速化し、PicoRV32のレジスタファイルを2R1Wへ戻す

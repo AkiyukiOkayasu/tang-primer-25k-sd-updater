@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 0.3.0 (Unreleased)
+## 0.3.0 (2026-10-22)
 
 - Rust crates 0.3.0 / Veryl RTL 0.3.0
 - breaking: `BoardIo::set_state` を削除し、`set_status(UpdateStatus)` を追加 (既定 no-op)
@@ -10,6 +10,7 @@
 - Flash の CS# high を 6cycle=120ns に拡大し、Flash SCLK を 25MHz→12.5MHz に低速化。
   PnR 変動に対する tSHSL/読み出しマージンを確保する (実機の更新時間差は1秒未満)
 - integration guide と README を新しい表示インターフェースに更新
+- tools のテストが並列実行で同一 temp ファイルを書き合って flaky だったため、ファイル名を一意にした
 - 移行: 0.2.x のままのプロジェクト (oscillator など) は、リリース時に `o_state` →
   `o_display`、`BoardIo::set_state` → `set_status` の置き換えが必要
 
