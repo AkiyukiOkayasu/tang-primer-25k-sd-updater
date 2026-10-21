@@ -271,7 +271,11 @@ layout_id = 0x4c415931
     }
 
     fn write_temp(name: &str, bytes: &[u8]) -> PathBuf {
-        let path = temp_dir().join(name);
+        // テストは並列実行されるため、同一プロセス内でもファイル名を一意にする。
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = temp_dir().join(format!("{unique}_{name}"));
         File::create(&path).unwrap().write_all(bytes).unwrap();
         path
     }
