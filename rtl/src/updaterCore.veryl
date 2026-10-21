@@ -5,7 +5,7 @@
 ///
 /// - `FLASH_APP_BASE` / `FLASH_APP_END`: app slot の範囲。`update_spec.toml` の
 ///   `flash.app_base` / `app_base + app_size` と一致させる
-/// - `o_state`: firmware の進行状態 (`UpdaterState`)
+/// - `o_display`: プロジェクト定義の 8bit 表示コード (CPU trap 時は 0xFF)
 ///
 /// # 同梱物
 ///
@@ -29,8 +29,8 @@ pub module UpdaterCore #(
     o_flash_mosi: output logic, /// Flash MOSI
     i_flash_miso: input  logic, /// Flash MISO
 
-    o_reconfig_trig_n: output logic                    , /// MultiBoot トリガ (外部で RECONFIG_N へ)
-    o_state          : output updater_pkg::UpdaterState, /// firmware 状態 (trap は ERROR)
+    o_reconfig_trig_n: output logic   , /// MultiBoot トリガ (外部で RECONFIG_N へ)
+    o_display        : output logic<8>, /// プロジェクト定義の表示コード (trap は 0xFF)
 ) {
     // =========================================
     // Global Reset Synchronization and Delay
@@ -184,7 +184,7 @@ pub module UpdaterCore #(
     // =========================================
     // Updater registers (SD / Flash / reconfig)
     // =========================================
-    var state_enum: updater_pkg::UpdaterState;
+    var display: logic<8>;
     inst regs: UpdaterRegs #(
         // firmware の UPDATER_PERIPH_BASE の下位 22bit と一致
         BASE          : 32'h0003_0000 ,
@@ -198,7 +198,7 @@ pub module UpdaterCore #(
         i_mem_wdata      : peri_mem_wdata   ,
         i_mem_wstrb      : peri_mem_wstrb   ,
         o_mem_rdata      : peri_mem_rdata   ,
-        o_state          : state_enum       ,
+        o_display        : display          ,
         o_sd_cs_n        : o_sd_cs_n        ,
         o_sd_sclk        : o_sd_sclk        ,
         o_sd_mosi        : o_sd_mosi        ,
@@ -211,5 +211,5 @@ pub module UpdaterCore #(
         o_reconfig_trig_n: o_reconfig_trig_n,
     );
 
-    assign o_state = if trap ? updater_pkg::UpdaterState::ERROR : state_enum;
+    assign o_display = if trap ? 8'hFF : display;
 }

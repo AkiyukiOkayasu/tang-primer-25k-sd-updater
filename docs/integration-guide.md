@@ -313,7 +313,7 @@ pub const UPDATER_PERIPH_BASE: usize = 0x0043_0000;
 
 // updaterRegs.veryl の ADDR_* - BASE と一致させる
 const REG_STATUS: usize = 0x00;   // bit0 = SD card detect (生レベル)
-const REG_STATE: usize = 0x0C;
+const REG_DISPLAY: usize = 0x0C;    // プロジェクト定義の表示コード (8bit)
 const REG_SD_CONTROL: usize = 0x10;  // bit0 START / bit1 CS_ASSERT
 const REG_SD_STATUS: usize = 0x14;   // bit0 BUSY / bit1 ERROR
 const REG_SD_CLK_DIV: usize = 0x18;
@@ -399,10 +399,6 @@ impl BoardIo for UpdaterMmio {
         self.read(REG_STATUS)
     }
 
-    fn set_state(&mut self, state: u32) {
-        self.write(REG_STATE, state);
-    }
-
     fn sd_set_cs(&mut self, asserted: bool) {
         self.write(REG_SD_CONTROL, if asserted { SD_CONTROL_CS_ASSERT } else { 0 });
     }
@@ -467,6 +463,10 @@ impl BoardIo for UpdaterMmio {
 }
 ```
 
+表示コードを使う場合は `BoardIo::set_status` (既定 no-op) を実装し、`REG_DISPLAY` に
+プロジェクト定義の 8bit コードを書く。Flash の書き込み段階などは `flash_erase_64k` /
+`flash_program_page` のアドレスからプロジェクト側で決めてよい。
+
 ---
 
 ## 6. top.veryl (完全な配線例)
@@ -490,10 +490,9 @@ module UpdaterTop (
     flash_sclk: output logic           ,
     flash_mosi: output logic           ,
     flash_miso: input  logic           ,
-    state        : output logic<4>,  /// firmware 状態表示コード (0x0-0xF)
+    display      : output logic<8>,  /// プロジェクト定義の表示コード
     reconfig_trig_n: output logic,   /// MultiBoot トリガ (外部で RECONFIG_N へ)
 ) {
-    var state_enum: tang_primer_25k_sd_updater::updater_pkg::UpdaterState;
     inst core: tang_primer_25k_sd_updater::UpdaterCore #(
         FLASH_APP_BASE: 32'h0010_0000,
         FLASH_APP_END : 32'h0020_0000,
@@ -504,11 +503,8 @@ module UpdaterTop (
         o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
         o_flash_mosi: flash_mosi, i_flash_miso: flash_miso,
         o_reconfig_trig_n: reconfig_trig_n,
-        o_state: state_enum,
+        o_display: display,
     );
-
-    // enum → logic は assign で暗黙変換 (ピンへ出すときに変換する)
-    assign state = state_enum;
 }
 ```
 
@@ -557,15 +553,16 @@ IO_LOC "flash_miso" E5;
 IO_LOC "reconfig_trig_n" A1;
 IO_PORT "reconfig_trig_n" IO_TYPE=LVCMOS33 OPEN_DRAIN=ON;
 
-// state は 4 ビットを個別ピンに割り当てる
-IO_LOC "state[0]" J10;
-IO_LOC "state[1]" J11;
-IO_LOC "state[2]" F6;
-IO_LOC "state[3]" F7;
+// display はプロジェクト定義の表示コード。LED 等のピンを必要に応じて割り当てる。
 ```
 
-`UpdaterCore` が公開する `o_state` (enum `UpdaterState`) は firmware の進行状態 (9.1 章)。
-LED 表示にする場合は、利用プロジェクト側で state を加工する (例: 更新中は点滅、エラーは常灯)。
+`UpdaterCore` が公開する `o_display` はプロジェクト定義の 8bit 表示コード (CPU trap 時は 0xFF)。
+firmware は `BoardIo::set_status` と Flash 操作から任意のコードを書き、top 側で LED 等に
+デコードする (例: 更新中は点滅、エラーは常灯)。具体例は FPGA_ADAT の updater を参照。
+
+Flash SPI の SCLK は `UpdaterRegs` 内で 12.5MHz (clk/4) に固定している。
+CS# high 期間 (tSHSL) は `FLASH_GAP_LAST` で 6cycle=120ns (50MHz 時) を確保しており、
+これは PnR では変わらないため SDC での追加制約は不要。
 
 ---
 

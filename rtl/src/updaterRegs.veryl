@@ -1,38 +1,5 @@
 /// updater RTL の状態定義。
-///
-/// `UpdaterState` は firmware の `UpdateStatus::state_code()` と対応する契約のため、
-/// 値を明示し幅も固定する。FSM の状態は連番でよいため値を省略し、幅は推論させる。
 pub package updater_pkg {
-    /// firmware 状態表示コード (firmware の `UpdateStatus.state_code()` と対応)。
-    enum UpdaterState: logic<4> {
-        /// 初期状態 / リセット直後
-        IDLE = 0,
-        /// SD 初期化開始
-        SD_INIT = 1,
-        /// SD 電源安定待ち (100ms)
-        SD_POWER_WAIT = 2,
-        /// SD ダミークロック送出
-        SD_DUMMY_CLOCK = 3,
-        /// SD CMD0 (SPI mode 移行)
-        SD_CMD0 = 4,
-        /// FAT マウント / 更新ファイル探索
-        FAT_FILE = 8,
-        /// 更新ファイル header 読み出し中
-        HEADER_READ = 9,
-        /// header の target / layout 検証完了
-        HEADER_VALID = 10,
-        /// SD payload の CRC32 検証中 (書き込みパスのみ)
-        PAYLOAD_VERIFY = 11,
-        /// Flash JEDEC ID 確認 (書き込みパスのみ)
-        FLASH_JEDEC = 12,
-        /// app slot の現内容がパッケージと一致し、書き込みをスキップ
-        APP_SLOT_SKIP = 13,
-        /// Flash 書き込み / readback verify / 成功 (reconfig で app へ移行)
-        FLASH_WRITE = 14,
-        /// エラー / trap
-        ERROR = 15,
-    }
-
     /// SD 転送 FSM の状態。
     enum SdState {
         IDLE,
@@ -78,7 +45,7 @@ pub package updater_pkg {
 ///
 /// ```text
 /// 0x00 STATUS            (bit0 = SD card detect 1: 挿入 / 0: 未挿入, read-only)
-/// 0x0C STATE             (firmware 状態表示コード 0x0-0xF)
+/// 0x0C DISPLAY           (プロジェクト定義の表示コード 8bit)
 /// 0x10 SD_CONTROL        (START / CS_ASSERT)
 /// 0x14 SD_STATUS         (BUSY / ERROR)
 /// 0x18 SD_CLK_DIV
@@ -119,7 +86,7 @@ pub module UpdaterRegs #(
     i_mem_wstrb: input  logic<4> ,
     o_mem_rdata: output logic<32>,
 
-    o_state: output updater_pkg::UpdaterState, /// firmware 状態表示コード
+    o_display: output logic<8>, /// プロジェクト定義の表示コード
 
     o_sd_cs_n: output logic,
     o_sd_sclk: output logic,
@@ -135,7 +102,7 @@ pub module UpdaterRegs #(
     o_reconfig_trig_n: output logic,
 ) {
     const ADDR_STATUS          : logic<22> = BASE + 22'h0000;
-    const ADDR_STATE           : logic<22> = BASE + 22'h000C;
+    const ADDR_DISPLAY         : logic<22> = BASE + 22'h000C;
     const ADDR_SD_CONTROL      : logic<22> = BASE + 22'h0010;
     const ADDR_SD_STATUS       : logic<22> = BASE + 22'h0014;
     const ADDR_SD_CLK_DIV      : logic<22> = BASE + 22'h0018;
@@ -164,28 +131,29 @@ pub module UpdaterRegs #(
     const RECONFIG_CONTROL_ASSERT_LOW: logic<32> = 32'h0000_0001;
 
     const FLASH_PAGE_SIZE: logic<9> = 9'd256;
-    // SPI NOR の write/erase/program 系 tSHSL(min 50ns) を満たすため、50MHz で3cycle(60ns)空ける。
-    const FLASH_GAP_LAST: logic<2> = 2'd2;
+    // SPI NOR の write/erase/program 系 tSHSL(min 50ns) を満たすため、
+    // 50MHz で6cycle(120ns)空ける。PnR で波形が数ns動いても規格内に収まる余裕を取る。
+    const FLASH_GAP_LAST: logic<3> = 3'd5;
 
     let is_write           : logic     = i_mem_wstrb != 0;
     let flash_buffer_hit   : logic     = i_mem_addr >= ADDR_FLASH_BUFFER && i_mem_addr <: ADDR_FLASH_BUFFER_END;
     let flash_buffer_offset: logic<22> = i_mem_addr - ADDR_FLASH_BUFFER;
     let flash_buffer_index : logic<6>  = flash_buffer_offset[7:2];
 
-    var reg_state        : updater_pkg::UpdaterState         ;
-    var reg_sd_control   : logic                    <32>     ;
-    var reg_sd_status    : logic                    <32>     ;
-    var reg_sd_clk_div   : logic                    <32>     ;
-    var reg_sd_tx        : logic                    <32>     ;
-    var reg_sd_rx        : logic                    <32>     ;
-    var reg_flash_address: logic                    <32>     ;
-    var reg_flash_length : logic                    <32>     ;
-    var reg_flash_command: logic                    <32>     ;
-    var reg_flash_status : logic                    <32>     ;
-    var reg_flash_jedec  : logic                    <32>     ;
-    var reg_reconfig_ctrl: logic                    <32>     ;
-    var read_data_reg    : logic                    <32>     ;
-    var flash_buffer     : logic                    <32> [64];
+    var reg_display      : logic<8>      ;
+    var reg_sd_control   : logic<32>     ;
+    var reg_sd_status    : logic<32>     ;
+    var reg_sd_clk_div   : logic<32>     ;
+    var reg_sd_tx        : logic<32>     ;
+    var reg_sd_rx        : logic<32>     ;
+    var reg_flash_address: logic<32>     ;
+    var reg_flash_length : logic<32>     ;
+    var reg_flash_command: logic<32>     ;
+    var reg_flash_status : logic<32>     ;
+    var reg_flash_jedec  : logic<32>     ;
+    var reg_reconfig_ctrl: logic<32>     ;
+    var read_data_reg    : logic<32>     ;
+    var flash_buffer     : logic<32> [64];
 
     let flash_length_9 : logic<9>  = reg_flash_length[8:0];
     let flash_range_end: logic<32> = reg_flash_address + reg_flash_length;
@@ -194,7 +162,7 @@ pub module UpdaterRegs #(
     let flash_range_ok : logic     = reg_flash_address >= FLASH_APP_BASE && flash_range_end <= FLASH_APP_END;
     let flash_page_ok  : logic     = flash_page_end <= FLASH_PAGE_SIZE;
 
-    assign o_state           = reg_state;
+    assign o_display         = reg_display;
     assign o_mem_rdata       = read_data_reg;
     assign o_reconfig_trig_n = if (reg_reconfig_ctrl & RECONFIG_CONTROL_ASSERT_LOW) != 0 ? 1'b0 : 1'b1;
 
@@ -239,7 +207,7 @@ pub module UpdaterRegs #(
     var flash_buffer_tx_word     : logic                  <32>;
     var flash_buffer_tx_byte     : logic                  <8> ;
     var flash_poll_count         : logic                  <24>;
-    var flash_gap_count          : logic                  <2> ;
+    var flash_gap_count          : logic                  <3> ;
     let flash_poll_count_low_next: logic                  <23> = flash_poll_count[22:0] + 23'd1;
     let flash_poll_count_msb_next: logic                       = flash_poll_count[23]
         ^ (flash_poll_count[22:0] == 23'h7F_FFFF);
@@ -303,17 +271,18 @@ pub module UpdaterRegs #(
     }
 
     inst flash_spi: SpiByteEngine (
-        i_clk              : i_clk          ,
-        i_rst              : i_rst          ,
-        i_start            : flash_spi_start,
-        i_half_period_cycle: 8'd1           ,
-        i_tx_data          : flash_spi_tx   ,
-        i_miso             : i_flash_miso   ,
-        o_busy             : _              ,
-        o_done             : flash_spi_done ,
-        o_rx_data          : flash_spi_rx   ,
-        o_sclk             : flash_spi_sclk ,
-        o_mosi             : flash_spi_mosi ,
+        i_clk  : i_clk          ,
+        i_rst  : i_rst          ,
+        i_start: flash_spi_start,
+        // 12.5MHz。50MHz の 1/4 にして、基板/IOB の遅延マージンを確保する。
+        i_half_period_cycle: 8'd2          ,
+        i_tx_data          : flash_spi_tx  ,
+        i_miso             : i_flash_miso  ,
+        o_busy             : _             ,
+        o_done             : flash_spi_done,
+        o_rx_data          : flash_spi_rx  ,
+        o_sclk             : flash_spi_sclk,
+        o_mosi             : flash_spi_mosi,
     );
 
     assign o_flash_cs_n = flash_state == updater_pkg::FlashState::IDLE || flash_state == updater_pkg::FlashState::ERROR
@@ -324,7 +293,7 @@ pub module UpdaterRegs #(
 
     always_ff (i_clk, i_rst) {
         if_reset {
-            reg_state         = updater_pkg::UpdaterState::IDLE;
+            reg_display       = 0;
             reg_sd_control    = 0;
             reg_sd_clk_div    = 32'd64;
             reg_sd_tx         = 32'h0000_00FF;
@@ -336,7 +305,7 @@ pub module UpdaterRegs #(
         } else {
             if i_mem_valid && is_write {
                 case i_mem_addr {
-                    ADDR_STATE     : reg_state = i_mem_wdata[3:0] as updater_pkg::UpdaterState;
+                    ADDR_DISPLAY   : reg_display = i_mem_wdata[7:0];
                     ADDR_SD_CONTROL: {
                         reg_sd_control = if (i_mem_wdata & SD_CONTROL_CS_ASSERT) != 0 ? SD_CONTROL_CS_ASSERT : 0;
                     }
@@ -362,7 +331,7 @@ pub module UpdaterRegs #(
             if i_mem_valid && !is_write {
                 case i_mem_addr {
                     ADDR_STATUS          : read_data_reg = {31'd0, i_sd_cd};
-                    ADDR_STATE           : read_data_reg = {28'd0, reg_state};
+                    ADDR_DISPLAY         : read_data_reg = {24'd0, reg_display};
                     ADDR_SD_CONTROL      : read_data_reg = reg_sd_control;
                     ADDR_SD_STATUS       : read_data_reg = reg_sd_status;
                     ADDR_SD_CLK_DIV      : read_data_reg = reg_sd_clk_div;
@@ -492,7 +461,7 @@ pub module UpdaterRegs #(
                         flash_gap_count = 0;
                         flash_state     = updater_pkg::FlashState::CMD_START;
                     } else {
-                        flash_gap_count = flash_gap_count + 2'd1;
+                        flash_gap_count = flash_gap_count + 3'd1;
                     }
                 }
                 updater_pkg::FlashState::CMD_START: {
@@ -573,7 +542,7 @@ pub module UpdaterRegs #(
                         flash_gap_count = 0;
                         flash_state     = updater_pkg::FlashState::STATUS_CMD_START;
                     } else {
-                        flash_gap_count = flash_gap_count + 2'd1;
+                        flash_gap_count = flash_gap_count + 3'd1;
                     }
                 }
                 updater_pkg::FlashState::STATUS_CMD_START: {

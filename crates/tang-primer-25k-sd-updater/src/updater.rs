@@ -10,84 +10,53 @@ use embedded_sdmmc::{BlockDevice, Mode, SdCard, TimeSource, Timestamp, VolumeIdx
 const SD_DUMMY_CLOCK_BYTES: usize = 256;
 const RECONFIG_PULSE_MS: u32 = 1;
 
-/// 更新フローの進行状態。`state_code()` で 4bit の状態表示コードに変換され、
-/// RTL の `o_state` 出力 (top の `state` ポート) に表示される。
-/// コード値は RTL の `updater_pkg::UpdaterState` と対応する (変更時は両者を同期)。
+/// 更新フローの進行状態。`BoardIo::set_status` でプロジェクト側へ通知される。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateStatus {
-    /// 初期状態 / 更新なし (正常終了のフォールバック)。コード 0x0。
+    /// 初期状態 / 更新なし (正常終了のフォールバック)。
     Idle,
-    /// SD 初期化開始。コード 0x1。
+    /// SD 初期化開始。
     SdInit,
-    /// SD 電源安定待ち (100ms)。コード 0x2。
+    /// SD 電源安定待ち (100ms)。
     SdPowerWait,
-    /// SD ダミークロック送出。コード 0x3。
+    /// SD ダミークロック送出。
     SdDummyClock,
-    /// SD CMD0 (SPI mode 移行)。コード 0x4。
+    /// SD CMD0 (SPI mode 移行)。
     SdCmd0,
-    /// FAT ボリュームマウント完了。コード 0x8。
+    /// FAT ボリュームマウント完了。
     FatMounted,
-    /// 更新ファイル探索中。コード 0x8。
+    /// 更新ファイル探索中。
     FileSearch,
-    /// header 読み出し中。コード 0x9。
+    /// header 読み出し中。
     HeaderRead,
-    /// header の target / layout 検証完了。コード 0xA。
+    /// header の target / layout 検証完了。
     HeaderValid,
-    /// SD payload の CRC32 検証中 (書き込みパスのみ)。コード 0xB。
+    /// SD payload の CRC32 検証中 (書き込みパスのみ)。
     PayloadVerify,
-    /// Flash JEDEC ID 確認 (書き込みパスのみ)。コード 0xC。
+    /// Flash JEDEC ID 確認 (書き込みパスのみ)。
     FlashJedec,
-    /// Flash 書き込み中 (ページ単位)。コード 0xE。
+    /// Flash 書き込み中 (ページ単位)。
     FlashProgram,
-    /// Flash readback verify 中。コード 0xE。
+    /// Flash readback verify 中。
     FlashVerify,
-    /// 更新成功 (FlashVerifyOk)。reconfig で app へ移行する。コード 0xE。
+    /// 更新成功 (FlashVerifyOk)。reconfig で app へ移行する。
     FlashVerifyOk,
-    /// app slot の現内容がパッケージと一致し、書き込みをスキップした。コード 0xD。
+    /// app slot の現内容がパッケージと一致し、書き込みをスキップした。
     AppSlotSkip,
-    /// SD I/O 失敗 (カード無し・応答なし)。この状態では app へ移行する。コード 0xF。
+    /// SD I/O 失敗 (カード無し・応答なし)。この状態では app へ移行する。
     FatIoError,
-    /// 更新ファイルが見つからない。app へ移行する。コード 0xF。
+    /// 更新ファイルが見つからない。app へ移行する。
     FileNotFound,
-    /// FAT 形式エラー (カード読めず)。app へ移行する。コード 0xF。
+    /// FAT 形式エラー (カード読めず)。app へ移行する。
     FatFormatError,
-    /// header 検証エラー (magic / format 等)。updater に留まる。コード 0xF。
+    /// header 検証エラー (magic / format 等)。updater に留まる。
     HeaderError,
-    /// target (hw / fpga) 不一致。updater に留まる。コード 0xF。
+    /// target (hw / fpga) 不一致。updater に留まる。
     TargetError,
-    /// payload 検証エラー (CRC32 不一致・slot 範囲外)。updater に留まる。コード 0xF。
+    /// payload 検証エラー (CRC32 不一致・slot 範囲外)。updater に留まる。
     PayloadError,
-    /// Flash 操作エラー。updater に留まる。コード 0xF。
+    /// Flash 操作エラー。updater に留まる。
     FlashError,
-}
-
-impl UpdateStatus {
-    fn state_code(self) -> u32 {
-        match self {
-            UpdateStatus::Idle => 0x0,
-            UpdateStatus::SdInit => 0x1,
-            UpdateStatus::SdPowerWait => 0x2,
-            UpdateStatus::SdDummyClock => 0x3,
-            UpdateStatus::SdCmd0 => 0x4,
-            UpdateStatus::FatMounted | UpdateStatus::FileSearch => 0x8,
-            UpdateStatus::HeaderRead => 0x9,
-            UpdateStatus::HeaderValid => 0xA,
-            UpdateStatus::PayloadVerify => 0xB,
-            UpdateStatus::FlashJedec => 0xC,
-            // 0xD は書き込みスキップの判定表示に割り当てる (erase は report しない)。
-            UpdateStatus::AppSlotSkip => 0xD,
-            UpdateStatus::FlashProgram
-            | UpdateStatus::FlashVerify
-            | UpdateStatus::FlashVerifyOk => 0xE,
-            UpdateStatus::FatIoError
-            | UpdateStatus::FileNotFound
-            | UpdateStatus::FatFormatError
-            | UpdateStatus::HeaderError
-            | UpdateStatus::TargetError
-            | UpdateStatus::PayloadError
-            | UpdateStatus::FlashError => 0xF,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,7 +131,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     }
 
     pub fn report_status(&mut self, status: UpdateStatus) {
-        self.io.set_state(status.state_code());
+        self.io.set_status(status);
     }
 
     fn run_update(&mut self) -> Result<bool, UpdateError> {

@@ -1,5 +1,7 @@
 //! `Updater` が要求するボード抽象。プロジェクト側はこれを実装して MMIO に接続する。
 
+use crate::updater::UpdateStatus;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IoError {
     OutOfRange,
@@ -19,8 +21,8 @@ impl embedded_hal::spi::Error for IoError {
 /// 呼び出し順の直列化は updater 側が保証する。
 pub trait BoardIo {
     fn status(&self) -> u32;
-    /// 4bit の状態表示コードを RTL の state 出力へ書き込む (0x0-0xF)。
-    fn set_state(&mut self, state: u32);
+    /// 更新フローの状態が変化したときに呼ばれる。LED 表示などに使う。既定は no-op。
+    fn set_status(&mut self, _status: UpdateStatus) {}
     fn sd_set_cs(&mut self, asserted: bool);
     fn sd_set_clock_div(&mut self, half_period_cycles: u8);
     fn sd_transfer_byte(&mut self, byte: u8) -> Result<u8, IoError>;

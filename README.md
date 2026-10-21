@@ -58,11 +58,11 @@ inst core: tang_primer_25k_sd_updater::UpdaterCore #(
     o_flash_cs_n: flash_cs_n, o_flash_sclk: flash_sclk,
     o_flash_mosi: flash_mosi, i_flash_miso: flash_miso,
     o_reconfig_trig_n: reconfig_trig_n,
-    o_state: state_enum,
+    o_display: _, // プロジェクト定義の表示コード (未使用なら未接続)
 );
 ```
 
-完全例 (ポート宣言・enum → logic 変換・CST) は integration-guide 6 章。
+完全例 (ポート宣言・CST) は integration-guide 6 章。
 
 ### ホストツール
 

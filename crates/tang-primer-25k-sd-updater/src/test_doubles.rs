@@ -1,11 +1,11 @@
 //! テスト用のメモリ上 BoardIo 実装。
 
-use crate::{BoardIo, IoError};
+use crate::{BoardIo, IoError, UpdateStatus};
 
 #[derive(Debug, Clone)]
 pub struct FakeMmio {
     pub status: u32,
-    pub state: u32,
+    pub last_status: Option<UpdateStatus>,
     pub sd_cs_asserted: bool,
     pub sd_clock_div: u8,
     pub sd_tx: std::vec::Vec<u8>,
@@ -29,7 +29,7 @@ impl Default for FakeMmio {
     fn default() -> Self {
         Self {
             status: 0,
-            state: 0,
+            last_status: None,
             sd_cs_asserted: false,
             sd_clock_div: 64,
             sd_tx: std::vec::Vec::new(),
@@ -54,8 +54,8 @@ impl BoardIo for FakeMmio {
         self.status
     }
 
-    fn set_state(&mut self, state: u32) {
-        self.state = state;
+    fn set_status(&mut self, status: UpdateStatus) {
+        self.last_status = Some(status);
     }
 
     fn sd_set_cs(&mut self, asserted: bool) {
