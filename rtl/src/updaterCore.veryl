@@ -37,8 +37,8 @@ pub module UpdaterCore #(
     // =========================================
     var rst_delayed: reset_sync_high;
     inst reset_bridge: rst_bridge #(
-        // Gowin BSRAM の reset 後の利用可能待ち (20.48us @ 50MHz)
-        DELAY_CYCLES: 1024,
+        // Gowin BSRAM の reset 後の利用可能待ち (5.12us @ 50MHz)
+        DELAY_CYCLES: 256,
     ) (
         clk     : i_clk      ,
         rst     : i_rst      ,
