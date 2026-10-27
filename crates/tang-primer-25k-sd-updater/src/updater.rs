@@ -39,15 +39,17 @@ pub enum UpdateStatus {
     FlashProgram,
     /// Flash readback verify 中。
     FlashVerify,
+    /// Flash readback の内容が書き込みデータと一致しない。updater に留まる。
+    FlashVerifyError,
     /// 更新成功 (FlashVerifyOk)。reconfig で app へ移行する。
     FlashVerifyOk,
     /// app slot の現内容がパッケージと一致し、書き込みをスキップした。
     AppSlotSkip,
-    /// SD I/O 失敗 (カード無し・応答なし)。この状態では app へ移行する。
+    /// SD I/O 失敗 (カード無し・応答なし)。flash 書き込み開始前だけ app へ移行する。
     FatIoError,
-    /// 更新ファイルが見つからない。app へ移行する。
+    /// 更新ファイルが見つからない。flash 書き込み開始前だけ app へ移行する。
     FileNotFound,
-    /// FAT 形式エラー (カード読めず)。app へ移行する。
+    /// FAT 形式エラー (カード読めず)。flash 書き込み開始前だけ app へ移行する。
     FatFormatError,
     /// header 検証エラー (magic / format 等)。updater に留まる。
     HeaderError,
@@ -80,6 +82,8 @@ pub struct Updater<Io> {
     terminal_status: Option<UpdateStatus>,
     page: [u8; spi_nor::PAGE_SIZE as usize],
     verify: [u8; spi_nor::PAGE_SIZE as usize],
+    /// erase 以降に進んだか。開始後の SD エラーで app へ移行すると、消した app slot を起動してしまう。
+    flash_write_started: bool,
 }
 
 impl<Io: BoardIo + 'static> Updater<Io> {
@@ -90,6 +94,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
             terminal_status: None,
             page: [0; spi_nor::PAGE_SIZE as usize],
             verify: [0; spi_nor::PAGE_SIZE as usize],
+            flash_write_started: false,
         }
     }
 
@@ -101,9 +106,10 @@ impl<Io: BoardIo + 'static> Updater<Io> {
 
     /// 1 回呼ぶごとに更新フローを最後まで進める。終端状態に達した後は同じ状態を返す。
     ///
-    /// SD カードが無い・更新ファイルが無い・カードが読めない場合は、そのまま通常 app へ
-    /// reconfigして移行する。app slot が空/破損なら config 失敗で次回電源投入時に
-    /// 先頭 updater へ戻る (Golden fallback 未使用のため)。
+    /// SD カードが無い・更新ファイルが無い・カードが読めない場合は、flash 書き込み開始前だけ
+    /// 通常 app へ reconfig して移行する。開始後は app slot が消えている可能性があるため
+    /// updater に留まる。app slot が空/破損なら config 失敗で次回電源投入時に先頭 updater へ
+    /// 戻る (Golden fallback 未使用のため)。
     pub fn poll_once(&mut self) -> UpdateStatus {
         if let Some(status) = self.terminal_status {
             return status;
@@ -120,14 +126,21 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         self.io.sd_set_cs(false);
         self.terminal_status = Some(status);
 
-        if matches!(
-            status,
-            UpdateStatus::FatIoError | UpdateStatus::FileNotFound | UpdateStatus::FatFormatError
-        ) {
+        if self.should_reconfig_to_app(status) {
             self.trigger_app_reconfig();
         }
 
         status
+    }
+
+    fn should_reconfig_to_app(&self, status: UpdateStatus) -> bool {
+        !self.flash_write_started
+            && matches!(
+                status,
+                UpdateStatus::FatIoError
+                    | UpdateStatus::FileNotFound
+                    | UpdateStatus::FatFormatError
+            )
     }
 
     pub fn report_status(&mut self, status: UpdateStatus) {
@@ -292,8 +305,19 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         }
 
         self.verify_flash_device()?;
+        // erase 前にカードと更新ファイルを開き、erase 後の再オープン失敗で app slot を消さない。
+        let card = self.open_sd_card()?;
+        let volume = card.open_volume(VolumeIdx(0)).map_err(map_sd_error)?;
+        let root = volume.open_root_dir().map_err(map_sd_error)?;
+        let file = root
+            .open_file_in_dir(self.spec.file_name, Mode::ReadOnly)
+            .map_err(map_sd_error)?;
+        file.seek_from_start(header.payload_offset)
+            .map_err(map_sd_error)?;
+
+        self.flash_write_started = true;
         self.erase_app_slot(header.payload_size)?;
-        self.program_payload_from_sd(header)?;
+        self.program_payload_from_sd(header, &file)?;
         self.io.sd_set_cs(false);
         Ok(())
     }
@@ -333,29 +357,33 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         Ok(())
     }
 
-    fn program_payload_from_sd(
+    fn program_payload_from_sd<D, T, const DIRS: usize, const FILES: usize, const VOLUMES: usize>(
         &mut self,
         header: package::UpdateHeader,
-    ) -> Result<(), UpdateError> {
-        let card = self.open_sd_card()?;
-        let volume = card.open_volume(VolumeIdx(0)).map_err(map_sd_error)?;
-        let root = volume.open_root_dir().map_err(map_sd_error)?;
-        let file = root
-            .open_file_in_dir(self.spec.file_name, Mode::ReadOnly)
-            .map_err(map_sd_error)?;
-        file.seek_from_start(header.payload_offset)
-            .map_err(map_sd_error)?;
-
+        file: &embedded_sdmmc::File<'_, D, T, DIRS, FILES, VOLUMES>,
+    ) -> Result<(), UpdateError>
+    where
+        D: BlockDevice,
+        D::Error: core::fmt::Debug,
+        T: TimeSource,
+    {
         self.report_status(UpdateStatus::FlashProgram);
+        let mut crc = crc32::Crc32::new();
         let mut remaining = header.payload_size;
         let mut flash_address = self.spec.app_base;
         while remaining != 0 {
             let chunk_len = core::cmp::min(remaining, self.page.len() as u32) as usize;
-            read_exact(&file, &mut self.page[..chunk_len])?;
+            read_exact(file, &mut self.page[..chunk_len])?;
+            crc.update(&self.page[..chunk_len]);
             self.program_and_verify_page(flash_address, chunk_len)?;
 
             remaining -= chunk_len as u32;
             flash_address += chunk_len as u32;
+        }
+
+        // 検証時と書き込み時で SD の読み出し内容が変わっていないことを確認する。
+        if crc.finish() != header.payload_crc32 {
+            return Err(UpdateError::PayloadCrc);
         }
         Ok(())
     }
@@ -445,9 +473,8 @@ fn map_update_error(error: UpdateError) -> UpdateStatus {
         UpdateError::Header(_) => UpdateStatus::HeaderError,
         UpdateError::WrongTarget | UpdateError::WrongLayout => UpdateStatus::TargetError,
         UpdateError::PayloadCrc | UpdateError::SlotRange => UpdateStatus::PayloadError,
-        UpdateError::Flash(_) | UpdateError::FlashJedec | UpdateError::VerifyMismatch => {
-            UpdateStatus::FlashError
-        }
+        UpdateError::VerifyMismatch => UpdateStatus::FlashVerifyError,
+        UpdateError::Flash(_) | UpdateError::FlashJedec => UpdateStatus::FlashError,
     }
 }
 
@@ -509,5 +536,24 @@ mod tests {
         };
         let mut updater = Updater::new(mmio, TEST_SPEC);
         assert!(updater.app_slot_matches(header_for(&payload)).is_err());
+    }
+
+    #[test]
+    fn sd_error_before_flash_write_moves_to_app() {
+        let mut updater = Updater::new(FakeMmio::default(), TEST_SPEC);
+        updater.flash_write_started = false;
+        assert!(updater.should_reconfig_to_app(UpdateStatus::FatIoError));
+        assert!(updater.should_reconfig_to_app(UpdateStatus::FileNotFound));
+        assert!(updater.should_reconfig_to_app(UpdateStatus::FatFormatError));
+    }
+
+    #[test]
+    fn sd_error_after_flash_write_stays_in_updater() {
+        let mut updater = Updater::new(FakeMmio::default(), TEST_SPEC);
+        updater.flash_write_started = true;
+        assert!(!updater.should_reconfig_to_app(UpdateStatus::FatIoError));
+        assert!(!updater.should_reconfig_to_app(UpdateStatus::FileNotFound));
+        assert!(!updater.should_reconfig_to_app(UpdateStatus::FatFormatError));
+        assert!(!updater.should_reconfig_to_app(UpdateStatus::FlashError));
     }
 }

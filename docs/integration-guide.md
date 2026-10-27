@@ -66,13 +66,15 @@ updater firmware は TCM 32KB 以内、SD カードは FAT32。
    - 一致 → 書き込みをスキップして reconfig (SD payload は読まない)
    - 不一致 → 次へ
 4. `validate_payload_digest()` — SD payload を読み、CRC32 を検証
-5. `program_app_slot()` — erase (64KB ブロック) → program (256B ページ) → readback verify
+5. `program_app_slot()` — erase 前にカードと更新ファイルを再オープンし、
+   erase (64KB ブロック) → program (256B ページ) → readback verify
+   - 書き込み時の SD 再読み出しデータも CRC32 で再検証する
 6. `trigger_app_reconfig()` — `reconfig_trig_n` を 1ms Low pulse → MultiBoot で app 起動
 
-- **検証・書き込みエラー** (header / target / payload / flash) 時は updater に留まり、
-  `UpdateStatus` (state 表示) で状態を報告する
-- **SD 無し / ファイル無し / カード読めず** はエラー扱いにせず、そのまま reconfig して
-  app へ移行する (skip と同じ経路)
+- **検証・書き込みエラー** (header / target / payload / flash / verify) 時は updater に留まり、
+  `UpdateStatus` で状態を報告する
+- **SD 無し / ファイル無し / カード読めず** は erase 開始前だけ app へ移行する。
+  erase 開始後の SD エラーは app slot が無効になっている可能性があるため updater に留まる
 
 ---
 
@@ -119,10 +121,10 @@ crates は crates.io、RTL ライブラリは Veryl registry (`github` + `versio
 
 ```toml
 [dependencies]
-tang-primer-25k-sd-updater = { version = "0.2" }
+tang-primer-25k-sd-updater = { version = "0.3.1" }
 
 [build-dependencies]
-tang-primer-25k-sd-updater-build = { version = "0.2" }
+tang-primer-25k-sd-updater-build = { version = "0.3.1" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 panic-halt = "1.0.0"
@@ -247,7 +249,7 @@ reset_type = "sync_high"
 target = { type = "directory", path = "target/" }
 
 [dependencies]
-tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.2.2" }
+tang_primer_25k_sd_updater = { github = "AkiyukiOkayasu/tang-primer-25k-sd-updater", version = "0.3.1" }
 ```
 
 - `reset_type = "sync_high"` は生成物の既定。top の `rst` ポートは
