@@ -1,5 +1,19 @@
 # RELEASES
 
+## 0.3.1 (2026-10-27)
+
+- flash 書き込み開始後の SD エラーで app へ reconfig しないよう修正。
+  erase 後は app slot が消えている可能性があるため、updater に留まる
+- erase 前に SD カードと更新ファイルを開き、カード/ファイルのオープン失敗で app slot を消さないよう修正
+- 書き込み時の SD 再読み出しデータを CRC32 で再検証し、検証時と異なるデータを
+  書き込んだ場合は PayloadError とする
+- `UpdateStatus::FlashVerifyError` を追加。readback 内容の不一致を `FlashError` と
+  区別できるようにする (downstream の網羅 match は更新が必要)
+- `UpdaterCore` の reset 解除遅延を 1024 cycle から 256 cycle (5.12us @ 50MHz) へ戻す
+- 既知の制約: `flash_write_started` は RAM 上だけなので、erase 後の停電・リセットで
+  更新中断を永続的に識別できない。metadata / Golden fallback は利用プロジェクト側の
+  次フェーズで実装する
+
 ## 0.3.0 (2026-10-22)
 
 - 表示APIを変更 (breaking): `o_state` / `UpdaterState` / `BoardIo::set_state` を削除し、
