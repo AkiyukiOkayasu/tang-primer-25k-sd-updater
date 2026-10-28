@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.4.0 (2026-10-28)
+
+- Rust crates 0.4.0 / Veryl RTL 0.3.1
+- `UpdateSpec.file_name` が FAT32 の LFN に対応。8.3 に収まる名前は従来どおり
+  short name、収まらない名前は `open_long_name_file_in_dir` で開く
+- `update_spec.toml` の `file_name` は最大 255 文字の ASCII 英数字とドットを受け付ける
+- 既存の 8.3 名を使うプロジェクトは変更不要
+
 ## 0.3.1 (2026-10-27)
 
 - Rust crates 0.3.1 / Veryl RTL 0.3.1

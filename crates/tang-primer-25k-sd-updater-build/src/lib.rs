@@ -37,7 +37,7 @@ pub struct Spec {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSpec {
-    /// SD から読む固定ファイル名 (FAT32 8.3: 8 文字以内 + 拡張子 3 文字以内)。
+    /// SD から読む固定ファイル名。8.3 名と FAT32 の LFN (最大 255 文字) を受け付ける。
     file_name: String,
     /// header 先頭 8 byte の 16 進数 (16 文字)。
     magic_hex: String,
@@ -68,10 +68,14 @@ pub fn parse(spec: &str, path: &str) -> Result<Spec, String> {
     let raw: RawSpec = toml::from_str(spec).map_err(|error| format!("{path}: {error}"))?;
 
     let magic = parse_magic(&raw.magic_hex).map_err(|error| format!("{path}: {error}"))?;
-    if !raw
-        .file_name
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
+    if raw.file_name.is_empty()
+        || raw.file_name.len() > 255
+        || raw.file_name.starts_with('.')
+        || raw.file_name.ends_with('.')
+        || !raw
+            .file_name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.')
     {
         return Err(format!("{path}: invalid file_name \"{}\"", raw.file_name));
     }
@@ -237,8 +241,31 @@ layout_id = 0x4c415931
     }
 
     #[test]
+    fn accepts_long_file_name() {
+        let spec = SAMPLE_TOML.replace(
+            "file_name = \"TANG25K.UPD\"",
+            "file_name = \"FRAMEFOLD.UPD\"",
+        );
+        let spec = parse(&spec, "update_spec.toml").unwrap();
+        assert_eq!(spec.file_name, "FRAMEFOLD.UPD");
+    }
+
+    #[test]
     fn rejects_invalid_file_name() {
         let spec = SAMPLE_TOML.replace("file_name = \"TANG25K.UPD\"", "file_name = \"../x\"");
+        assert!(parse(&spec, "update_spec.toml").is_err());
+
+        let spec = SAMPLE_TOML.replace("file_name = \"TANG25K.UPD\"", "file_name = \".UPD\"");
+        assert!(parse(&spec, "update_spec.toml").is_err());
+
+        let spec = SAMPLE_TOML.replace("file_name = \"TANG25K.UPD\"", "file_name = \"UPD.\"");
+        assert!(parse(&spec, "update_spec.toml").is_err());
+
+        let long_name = "A".repeat(256);
+        let spec = SAMPLE_TOML.replace(
+            "file_name = \"TANG25K.UPD\"",
+            &format!("file_name = \"{long_name}\""),
+        );
         assert!(parse(&spec, "update_spec.toml").is_err());
     }
 

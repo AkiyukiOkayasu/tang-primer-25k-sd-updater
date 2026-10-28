@@ -243,9 +243,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         let mut header_bytes = [0u8; crate::MAX_HEADER_SIZE];
         let volume = card.open_volume(VolumeIdx(0)).map_err(map_sd_error)?;
         let root = volume.open_root_dir().map_err(map_sd_error)?;
-        let file = root
-            .open_file_in_dir(self.spec.file_name, Mode::ReadOnly)
-            .map_err(map_sd_error)?;
+        let file = open_update_file(&root, &self.spec).map_err(map_sd_error)?;
         read_exact(&file, &mut header_bytes)?;
         package::UpdateHeader::parse(&header_bytes, file.length(), &self.spec)
             .map_err(UpdateError::Header)
@@ -274,9 +272,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
     ) -> Result<(), UpdateError> {
         let volume = card.open_volume(VolumeIdx(0)).map_err(map_sd_error)?;
         let root = volume.open_root_dir().map_err(map_sd_error)?;
-        let file = root
-            .open_file_in_dir(self.spec.file_name, Mode::ReadOnly)
-            .map_err(map_sd_error)?;
+        let file = open_update_file(&root, &self.spec).map_err(map_sd_error)?;
         file.seek_from_start(header.payload_offset)
             .map_err(map_sd_error)?;
 
@@ -309,9 +305,7 @@ impl<Io: BoardIo + 'static> Updater<Io> {
         let card = self.open_sd_card()?;
         let volume = card.open_volume(VolumeIdx(0)).map_err(map_sd_error)?;
         let root = volume.open_root_dir().map_err(map_sd_error)?;
-        let file = root
-            .open_file_in_dir(self.spec.file_name, Mode::ReadOnly)
-            .map_err(map_sd_error)?;
+        let file = open_update_file(&root, &self.spec).map_err(map_sd_error)?;
         file.seek_from_start(header.payload_offset)
             .map_err(map_sd_error)?;
 
@@ -432,6 +426,21 @@ impl TimeSource for NullTime {
             minutes: 0,
             seconds: 0,
         }
+    }
+}
+
+fn open_update_file<'a, D, T, const DIRS: usize, const FILES: usize, const VOLUMES: usize>(
+    root: &embedded_sdmmc::Directory<'a, D, T, DIRS, FILES, VOLUMES>,
+    spec: &UpdateSpec,
+) -> Result<embedded_sdmmc::File<'a, D, T, DIRS, FILES, VOLUMES>, embedded_sdmmc::Error<D::Error>>
+where
+    D: BlockDevice,
+    T: TimeSource,
+{
+    if spec.file_name_fits_8_3() {
+        root.open_file_in_dir(spec.file_name, Mode::ReadOnly)
+    } else {
+        root.open_long_name_file_in_dir(spec.file_name, Mode::ReadOnly)
     }
 }
 

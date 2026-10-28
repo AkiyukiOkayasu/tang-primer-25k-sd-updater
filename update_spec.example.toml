@@ -3,7 +3,7 @@
 # キー集合と構文は crates/tang-primer-25k-sd-updater-build のドキュメントを参照。
 #
 # 制約:
-# - file_name: FAT32 8.3 (8 文字以内 + 拡張子 3 文字以内)、ASCII 英数字とドットのみ
+# - file_name: ASCII 英数字とドットのみ。8.3 に収まらない名前は FAT32 LFN として開く (最大 255 文字)
 # - magic_hex: ちょうど 8 byte の 16 進数 (16 文字)
 
 file_name = "TANG25K.UPD"

@@ -1,5 +1,12 @@
 # RELEASES
 
+## 0.4.0 (2026-10-28)
+
+- Rust crates 0.4.0 / Veryl RTL 0.3.1
+- `file_name` の FAT32 LFN 対応。8.3 名は従来どおり short name で開き、
+  8.3 に収まらない名前は long name で開く
+- 既存プロジェクトは 8.3 名のままなら変更不要
+
 ## 0.3.1 (2026-10-27)
 
 - flash 書き込み開始後の SD エラーで app へ reconfig しないよう修正。

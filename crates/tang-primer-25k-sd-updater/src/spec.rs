@@ -31,6 +31,39 @@ pub struct UpdateSpec {
 }
 
 impl UpdateSpec {
+    /// `file_name` が FAT32 の 8.3 名に収まるか。
+    pub const fn file_name_fits_8_3(&self) -> bool {
+        let bytes = self.file_name.as_bytes();
+        let mut base_len = 0usize;
+        let mut extension_len = 0usize;
+        let mut seen_dot = false;
+        let mut index = 0usize;
+
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if byte == b'.' {
+                if seen_dot || base_len == 0 {
+                    return false;
+                }
+                seen_dot = true;
+            } else if (byte >= b'0' && byte <= b'9')
+                || (byte >= b'A' && byte <= b'Z')
+                || (byte >= b'a' && byte <= b'z')
+            {
+                if seen_dot {
+                    extension_len += 1;
+                } else {
+                    base_len += 1;
+                }
+            } else {
+                return false;
+            }
+            index += 1;
+        }
+
+        base_len != 0 && base_len <= 8 && extension_len <= 3
+    }
+
     /// `address` からの `length` バイトが app slot に完全に収まるか。
     pub const fn is_app_range(&self, address: u32, length: u32) -> bool {
         if length == 0 {
@@ -85,6 +118,33 @@ mod tests {
     use super::*;
 
     const _: () = assert!(TEST_SPEC.header_size <= MAX_HEADER_SIZE);
+
+    #[test]
+    fn file_name_fits_8_3_only_for_short_ascii_names() {
+        let mut spec = TEST_SPEC;
+        assert!(spec.file_name_fits_8_3());
+
+        spec.file_name = "FRAMEFOLD.UPD";
+        assert!(!spec.file_name_fits_8_3());
+
+        spec.file_name = "FRAMEFOLD";
+        assert!(!spec.file_name_fits_8_3());
+
+        spec.file_name = "FRAMFOLD.UPD";
+        assert!(spec.file_name_fits_8_3());
+
+        spec.file_name = "framfold.upd";
+        assert!(spec.file_name_fits_8_3());
+
+        spec.file_name = "FRAMFOLD.UPDX";
+        assert!(!spec.file_name_fits_8_3());
+
+        spec.file_name = "FRAMFOLD";
+        assert!(spec.file_name_fits_8_3());
+
+        spec.file_name = ".UPD";
+        assert!(!spec.file_name_fits_8_3());
+    }
 
     #[test]
     fn app_range_guard_allows_only_app_slot() {

@@ -121,10 +121,10 @@ crates は crates.io、RTL ライブラリは Veryl registry (`github` + `versio
 
 ```toml
 [dependencies]
-tang-primer-25k-sd-updater = { version = "0.3.1" }
+tang-primer-25k-sd-updater = { version = "0.4.0" }
 
 [build-dependencies]
-tang-primer-25k-sd-updater-build = { version = "0.3.1" }
+tang-primer-25k-sd-updater-build = { version = "0.4.0" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 panic-halt = "1.0.0"
@@ -287,7 +287,7 @@ layout_id = 0x4c415931
 
 | キー | 役割 |
 | --- | --- |
-| `file_name` | SD から読む固定ファイル名 (FAT32 8.3: 8 文字 + 拡張子 3 文字) |
+| `file_name` | SD から読む固定ファイル名。8.3 は short name、それ以外は LFN として開く (最大 255 文字、ASCII 英数字とドット) |
 | `magic_hex` | header 先頭 8 byte の 16 進数 (16 文字) |
 | `header_size` / `format_version` | header サイズ / パッケージ形式バージョン (3 章) |
 | `target_hw_id` / `target_fpga_id` | 製品 / FPGA 識別子 (3 章) |
